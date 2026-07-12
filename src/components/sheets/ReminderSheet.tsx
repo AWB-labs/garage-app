@@ -1,13 +1,13 @@
 import React from 'react';
-import { View } from 'react-native';
+import { Alert, View } from 'react-native';
 
 import { displayToKm, kmToDisplay } from '@/lib/format';
 import type { ReminderRule, ServiceType } from '@/lib/types';
-import { SERVICE_TYPES, SERVICE_TYPE_LABELS } from '@/lib/types';
+import { SERVICE_TYPES, SERVICE_TYPE_LABELS, serviceLabel } from '@/lib/types';
 import { useGarageStore } from '@/stores/garage';
 import { useSettingsStore } from '@/stores/settings';
-import { haptic, space } from '@/theme';
-import { AppText, Button, SegmentedControl } from '@/components/ui';
+import { haptic, hitTarget, space, useTheme } from '@/theme';
+import { AppText, Button, Icon, PressableScale, SegmentedControl } from '@/components/ui';
 import { Field, FieldRow } from './Field';
 import { GarageSheet, type GarageSheetHandle } from './GarageSheet';
 
@@ -20,10 +20,12 @@ export interface ReminderSheetProps {
 /** Recurring service reminder: by km, by days, or both. */
 export function ReminderSheet({ vehicleId, rule, onClose }: ReminderSheetProps) {
   const sheetRef = React.useRef<GarageSheetHandle>(null);
+  const { colors } = useTheme();
   const unit = useSettingsStore((s) => s.unit);
   const vehicle = useGarageStore((s) => s.vehicles.find((v) => v.id === vehicleId));
   const addReminder = useGarageStore((s) => s.addReminder);
   const updateReminder = useGarageStore((s) => s.updateReminder);
+  const deleteReminder = useGarageStore((s) => s.deleteReminder);
 
   const [serviceType, setServiceType] = React.useState<ServiceType>(rule?.serviceType ?? 'oil');
   const [customLabel, setCustomLabel] = React.useState(rule?.customLabel ?? '');
@@ -66,6 +68,21 @@ export function ReminderSheet({ vehicleId, rule, onClose }: ReminderSheetProps) 
     }
     haptic.save();
     sheetRef.current?.dismiss();
+  };
+
+  const confirmDelete = () => {
+    if (!rule) return;
+    Alert.alert('Delete reminder', 'Garage stops tracking this service. Logged history stays.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          haptic.warn();
+          void deleteReminder(rule.id).then(() => sheetRef.current?.dismiss());
+        },
+      },
+    ]);
   };
 
   return (
@@ -114,6 +131,25 @@ export function ReminderSheet({ vehicleId, rule, onClose }: ReminderSheetProps) 
         Counted from the last time this service was logged. Logging a matching service resets it automatically.
       </AppText>
       <Button label={rule ? 'Save changes' : 'Add reminder'} onPress={save} full />
+      {rule ? (
+        <PressableScale
+          accessibilityLabel={`Delete the ${serviceLabel(rule.serviceType, rule.customLabel)} reminder`}
+          onPress={confirmDelete}
+          style={{
+            minHeight: hitTarget,
+            marginTop: space.lg,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: space.sm,
+          }}
+        >
+          <Icon name="trash" size={16} color={colors.dangerText} />
+          <AppText variant="smallMedium" color="dangerText">
+            Delete reminder
+          </AppText>
+        </PressableScale>
+      ) : null}
     </GarageSheet>
   );
 }
