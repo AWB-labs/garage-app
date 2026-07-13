@@ -1,3 +1,4 @@
+import { format } from 'date-fns';
 import { useLocalSearchParams } from 'expo-router';
 import React from 'react';
 import { ScrollView, View } from 'react-native';
@@ -55,8 +56,10 @@ export default function StatsScreen() {
   // formatMoney prints "EGP 14,250"; the hero composes the grouped amount and currency separately.
   const grouped = formatMoney(total, currency).slice(currency.length + 1);
   const count = history.length;
+  // Local year, matching lib/stats and the Service log. The stored value is a
+  // UTC instant, so slicing it would file a record under the wrong year.
   const firstYear = history.reduce(
-    (min, s) => Math.min(min, Number(s.date.slice(0, 4))),
+    (min, s) => Math.min(min, Number(format(new Date(s.date), 'yyyy'))),
     Number.POSITIVE_INFINITY
   );
   const countPhrase = count === 1 ? '1 service' : `${count} services`;

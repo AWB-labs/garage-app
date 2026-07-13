@@ -15,6 +15,11 @@ export type SheetRequest =
       /** Marks this issue fixed by the saved service. */
       resolvesIssueId?: string;
       prefillType?: ServiceType;
+      /**
+       * Name of the custom reminder being cleared. The store matches custom
+       * reminders by label, so "Mark done" carries it through to the sheet.
+       */
+      prefillCustomLabel?: string;
     }
   | { kind: 'updateMileage'; vehicleId: string }
   | { kind: 'reportIssue'; vehicleId: string; issue?: Issue }

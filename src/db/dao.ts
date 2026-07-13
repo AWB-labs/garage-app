@@ -87,6 +87,18 @@ export async function deleteService(id: string): Promise<void> {
   await db.runAsync('DELETE FROM service_records WHERE id = ?', [id]);
 }
 
+/**
+ * issues.resolvedByServiceId is a plain column with no REFERENCES clause, so
+ * SQLite will not clear it when the service goes. Deleting a service must call
+ * this or the issue rehydrates pointing at a record that no longer exists.
+ */
+export async function clearResolvedByService(serviceId: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync('UPDATE issues SET resolvedByServiceId = NULL WHERE resolvedByServiceId = ?', [
+    serviceId,
+  ]);
+}
+
 // Reminder rules
 
 export async function listReminders(): Promise<ReminderRule[]> {

@@ -25,6 +25,7 @@ export function SheetHost() {
           service={current.service}
           resolvesIssueId={current.resolvesIssueId}
           prefillType={current.prefillType}
+          prefillCustomLabel={current.prefillCustomLabel}
           onClose={close}
         />
       );

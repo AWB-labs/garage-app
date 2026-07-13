@@ -3,7 +3,7 @@ import { format } from 'date-fns';
 import { useLocalSearchParams } from 'expo-router';
 import React from 'react';
 import { Alert, TextInput, View } from 'react-native';
-import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 
 import { CarHeader } from '@/components/CarHeader';
 import {
@@ -26,6 +26,7 @@ import {
   radius,
   space,
   springs,
+  staggerStep,
   type,
   useMotion,
   useTheme,
@@ -33,68 +34,70 @@ import {
 
 type Row = { key: string; kind: 'stamp' } | { key: string; kind: 'note'; note: Note };
 
-/** Spring reorder transition; plain layout change (no transition) when reduced. */
-function springLayout(reduced: boolean) {
-  return reduced
-    ? undefined
-    : LinearTransition.springify()
-        .damping(springs.settle.damping)
-        .stiffness(springs.settle.stiffness);
-}
+/** Reanimated entering config, as accepted by Animated.View. */
+type EnteringProp = React.ComponentProps<typeof Animated.View>['entering'];
+
+/** Rows past this index enter together: deep scrolling is never delayed. */
+const ENTRANCE_CAP = 8;
+/** After this window the mount choreography is over; later rows enter plain. */
+const ENTRANCE_WINDOW_MS = staggerStep * 16;
+
+/**
+ * No `layout` transition lives on these rows. They sit inside recycled
+ * FlashList cells, where the same view instance is handed a different note on
+ * scroll, so a layout spring would animate the height of unrelated content and
+ * could never animate the pin reorder (FlashList moves the cell, not the row).
+ */
 
 /** Small mono stamp above the pinned group. */
 const PinnedStamp = React.memo(function PinnedStamp() {
-  const { reduced } = useMotion();
   return (
-    <Animated.View layout={springLayout(reduced)} style={{ paddingTop: space.xs, paddingBottom: space.sm }}>
+    <View style={{ paddingTop: space.xs, paddingBottom: space.sm }}>
       <AppText variant="label" color="textMuted">
         Pinned
       </AppText>
-    </Animated.View>
+    </View>
   );
 });
 
 interface NoteRowProps {
   note: Note;
-  index: number;
+  /** Undefined once the mount choreography is over, so recycled rows never replay it. */
+  entering: EnteringProp;
   onOpen: (note: Note) => void;
   onTogglePin: (note: Note) => void;
   onDelete: (note: Note) => void;
 }
 
-const NoteRow = React.memo(function NoteRow({ note, index, onOpen, onTogglePin, onDelete }: NoteRowProps) {
+const NoteRow = React.memo(function NoteRow({ note, entering, onOpen, onTogglePin, onDelete }: NoteRowProps) {
   const { colors } = useTheme();
-  const { reduced, stagger } = useMotion();
 
   const dateCaption = `${note.createdAt === note.updatedAt ? 'Added' : 'Edited'} ${format(
     new Date(note.updatedAt),
     'd MMM yyyy'
   )}`;
-  const entering = reduced
-    ? undefined
-    : FadeInDown.delay(stagger(Math.min(index + 2, 8)))
-        .springify()
-        .damping(springs.settle.damping)
-        .stiffness(springs.settle.stiffness);
 
   return (
-    <Animated.View entering={entering} layout={springLayout(reduced)} style={{ marginBottom: space.md }}>
-      <Card
-        onPress={() => onOpen(note)}
-        onLongPress={() => onDelete(note)}
-        accessibilityLabel={`${note.pinned ? 'Pinned note' : 'Note'}: ${note.body}. ${dateCaption}. Long press to delete.`}
-        accessibilityHint="Opens the note editor."
-        accessibilityActions={[
-          { name: 'longpress', label: 'Delete note' },
-          { name: 'delete', label: 'Delete note' },
-        ]}
-        onAccessibilityAction={(event) => {
-          const action = event.nativeEvent.actionName;
-          if (action === 'longpress' || action === 'delete') onDelete(note);
-        }}
-      >
+    <Animated.View entering={entering} style={{ marginBottom: space.md }}>
+      {/* The card nests the pin button, so it is not an accessibility element itself:
+          the body and the pin button are reached separately by a screen reader. */}
+      <Card accessible={false} onPress={() => onOpen(note)} onLongPress={() => onDelete(note)}>
         <View style={{ flexDirection: 'row', gap: space.sm }}>
-          <View style={{ flex: 1 }}>
+          <View
+            accessible
+            accessibilityRole="button"
+            accessibilityLabel={`${note.pinned ? 'Pinned note' : 'Note'}: ${note.body}. ${dateCaption}. Long press to delete.`}
+            accessibilityHint="Opens the note editor."
+            accessibilityActions={[
+              { name: 'longpress', label: 'Delete note' },
+              { name: 'delete', label: 'Delete note' },
+            ]}
+            onAccessibilityAction={(event) => {
+              const action = event.nativeEvent.actionName;
+              if (action === 'longpress' || action === 'delete') onDelete(note);
+            }}
+            style={{ flex: 1 }}
+          >
             <AppText numberOfLines={6}>{note.body}</AppText>
             <AppText variant="label" color="textMuted" style={{ marginTop: space.sm }}>
               {dateCaption}
@@ -184,20 +187,38 @@ export default function NotesScreen() {
     [deleteNote]
   );
 
+  // Entrance choreography runs once per mount; rows mounted later (scroll,
+  // recycling, a search query that regrows the list) skip it so the list never
+  // re-staggers mid-session.
+  const entranceActive = React.useRef(true);
+  React.useEffect(() => {
+    const t = setTimeout(() => {
+      entranceActive.current = false;
+    }, ENTRANCE_WINDOW_MS);
+    return () => clearTimeout(t);
+  }, []);
+
   const renderItem = React.useCallback(
     ({ item, index }: ListRenderItemInfo<Row>) => {
       if (item.kind === 'stamp') return <PinnedStamp />;
+      const entering =
+        !entranceActive.current || reduced
+          ? undefined
+          : FadeInDown.delay(stagger(Math.min(index + 2, ENTRANCE_CAP)))
+              .springify()
+              .damping(springs.settle.damping)
+              .stiffness(springs.settle.stiffness);
       return (
         <NoteRow
           note={item.note}
-          index={index}
+          entering={entering}
           onOpen={openNote}
           onTogglePin={togglePin}
           onDelete={confirmDelete}
         />
       );
     },
-    [openNote, togglePin, confirmDelete]
+    [openNote, togglePin, confirmDelete, reduced, stagger]
   );
 
   if (!vehicle) return null;

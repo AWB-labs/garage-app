@@ -10,10 +10,15 @@ import { useMotion, useTheme } from '@/theme';
  * Skia canvas behind the whole FlashList (never per row) draws the vertical
  * rail as odometer tape: a main line plus minor ticks, with brighter major
  * ticks on a fixed cadence. The tape lives in content coordinates and is
- * translated by the scroll shared value on the UI thread; its drawn length
- * is clipped to scrollY + viewportHeight * 0.85 so the tape draws itself in
- * as you scroll. Printed km values are not drawn here: Skia text is heavy,
- * so the rows carry the mono captions instead.
+ * translated by the scroll shared value on the UI thread.
+ *
+ * The tape is built once per coarse `pathEnd` step and then trimmed on the UI
+ * thread by a clip that follows the exact content end (`end`, a shared value)
+ * and the scroll offset, so growing content never rebuilds the path on the JS
+ * thread mid-scroll. The clip leads the bottom of the viewport, so the tape is
+ * drawn to where the user has scrolled and is never short of the visible area.
+ * Printed km values are not drawn here: Skia text is heavy, so the rows carry
+ * the mono captions instead.
  */
 
 /** Width of the left gutter column every timeline row reserves for its node glyph. */
@@ -25,8 +30,13 @@ const TICK_STEP = 24;
 const MAJOR_EVERY = 5;
 const MINOR_HALF = 3;
 const MAJOR_HALF = 5.5;
-/** The tape is drawn down to this fraction of the viewport below the scroll offset. */
-const REVEAL = 0.85;
+/**
+ * The reveal line leads the bottom of the viewport by this fraction of a
+ * viewport, so the tape always covers the visible rows and simply keeps
+ * extending as the user scrolls. Anything below 1 would truncate the tape
+ * on screen at rest.
+ */
+const REVEAL_LEAD = 1.15;
 
 export interface TimelineRailProps {
   /** Scroll offset of the list, in a shared value (UI thread). */
@@ -35,8 +45,10 @@ export interface TimelineRailProps {
   x: number;
   /** Content y where the tape starts (just below the list header). */
   top: number;
-  /** Content y where the tape ends (above the list's bottom padding). */
-  end: number;
+  /** Exact content y where the tape ends, in a shared value: trims the drawn tape. */
+  end: SharedValue<number>;
+  /** Coarse content y the Skia path is built to. Grows in steps, never per frame. */
+  pathEnd: number;
   /** Canvas width. */
   width: number;
   /** Visible list viewport height. */
@@ -48,6 +60,7 @@ export const TimelineRail = React.memo(function TimelineRail({
   x,
   top,
   end,
+  pathEnd,
   width,
   viewportHeight,
 }: TimelineRailProps) {
@@ -57,11 +70,11 @@ export const TimelineRail = React.memo(function TimelineRail({
   const { minorPath, majorPath } = React.useMemo(() => {
     const minor = Skia.Path.Make();
     const major = Skia.Path.Make();
-    if (end > top) {
+    if (pathEnd > top) {
       minor.moveTo(x, top);
-      minor.lineTo(x, end);
+      minor.lineTo(x, pathEnd);
       let index = 0;
-      for (let y = top; y <= end; y += TICK_STEP) {
+      for (let y = top; y <= pathEnd; y += TICK_STEP) {
         const isMajor = index % MAJOR_EVERY === 0;
         const half = isMajor ? MAJOR_HALF : MINOR_HALF;
         const target = isMajor ? major : minor;
@@ -71,21 +84,25 @@ export const TimelineRail = React.memo(function TimelineRail({
       }
     }
     return { minorPath: minor, majorPath: major };
-  }, [x, top, end]);
+  }, [x, top, pathEnd]);
 
   /** Content scrolls under the canvas: mirror it by translating the tape. */
   const translate = useDerivedValue(() => [{ translateY: -scrollY.value }]);
 
   /**
-   * Content-space clip: the tape only exists down to the reveal line.
-   * Reduce motion: fully drawn from mount, no draw-in.
+   * Content-space clip: trims the coarse path back to the real content end, and
+   * extends with the scroll so the tape reads as drawing itself in. The reveal
+   * line always sits below the bottom edge of the screen, so the visible rows
+   * always have tape behind them. Reduce motion: fully drawn from mount.
    */
   const clipRect = useDerivedValue(() => {
-    const drawnEnd = reduced ? end : Math.min(end, scrollY.value + viewportHeight * REVEAL);
+    const drawnEnd = reduced
+      ? end.value
+      : Math.min(end.value, scrollY.value + viewportHeight * REVEAL_LEAD);
     return { x: 0, y: 0, width, height: Math.max(0, drawnEnd) };
   });
 
-  if (end <= top) return null;
+  if (pathEnd <= top) return null;
 
   return (
     <Canvas

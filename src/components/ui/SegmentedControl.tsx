@@ -18,10 +18,22 @@ export interface SegmentedControlProps<T extends string> {
   onChange: (value: T) => void;
   /** Wrap onto multiple rows for larger sets (service types). */
   wrap?: boolean;
+  /**
+   * Overrides the selection tick for a given value. Return null when the caller
+   * fires its own haptic for that choice, so a single tap never buzzes twice
+   * (marking an issue Fixed is a save, not a pick).
+   */
+  hapticFor?: (value: T) => (() => void) | null;
 }
 
 /** Spec-sheet segmented picker: mono caps, amber for the active stamp. */
-export function SegmentedControl<T extends string>({ options, value, onChange, wrap }: SegmentedControlProps<T>) {
+export function SegmentedControl<T extends string>({
+  options,
+  value,
+  onChange,
+  wrap,
+  hapticFor,
+}: SegmentedControlProps<T>) {
   const { colors } = useTheme();
   return (
     <View
@@ -41,10 +53,10 @@ export function SegmentedControl<T extends string>({ options, value, onChange, w
             accessibilityLabel={option.label}
             accessibilityState={{ selected: active }}
             onPress={() => {
-              if (!active) {
-                haptic.select();
-                onChange(option.value);
-              }
+              if (active) return;
+              const tick = hapticFor ? hapticFor(option.value) : haptic.select;
+              tick?.();
+              onChange(option.value);
             }}
             style={{
               flexDirection: 'row',

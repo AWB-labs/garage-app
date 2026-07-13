@@ -16,6 +16,7 @@ import type { IssueSeverity } from '@/lib/types';
 import { ISSUE_SEVERITY_LABELS } from '@/lib/types';
 import { durations, haptic, space, springs, useMotion, useTheme, type ColorToken } from '@/theme';
 import { AppText } from '@/components/ui';
+import { useSheetGestures } from '@/components/sheets/GarageSheet';
 
 export interface SeverityDialProps {
   value: IssueSeverity;
@@ -67,17 +68,20 @@ function ZoneArc({
  * to the nearest detent on release. Haptic fires only when the detent
  * changes, latched in a shared value inside the pan worklet.
  *
- * Gesture note: the dial lives inside a bottom sheet whose content-panning
- * gesture owns vertical drags. The pan activates on horizontal movement
- * (activeOffsetX) and fails on a mostly vertical start (failOffsetY), so the
- * dial never fights the sheet: horizontal drags steer the needle, vertical
- * drags still move the sheet. Taps and the accessibility actions cover
- * absolute selection everywhere on the face.
+ * Gesture contract (DESIGN.md 6.6): the gauge BLOCKS the sheet's
+ * content-panning gesture. The needle sweeps 180 degrees, so tangential motion
+ * near either end of the arc is close to vertical: the dial's pan therefore
+ * activates on movement in ANY direction, and it is handed to the enclosing
+ * GarageSheet as the gesture the sheet's content pan must wait to fail. The
+ * sheet is still draggable by its handle and dismissable from the backdrop, and
+ * the sheet content still scrolls anywhere outside the dial. Taps and the
+ * accessibility actions cover absolute selection everywhere on the face.
  */
 export const SeverityDial = React.memo(function SeverityDial({ value, onChange }: SeverityDialProps) {
   const { colors } = useTheme();
   const { reduced } = useMotion();
   const [width, setWidth] = React.useState(0);
+  const sheetGestures = useSheetGestures();
 
   const initialIdx = Math.max(0, SEVERITIES.indexOf(value));
   const detentIdx = useSharedValue(initialIdx);
@@ -92,6 +96,19 @@ export const SeverityDial = React.memo(function SeverityDial({ value, onChange }
   const cx = width / 2;
   const cy = LABEL_BAND + R;
   const height = cy + 12;
+
+  // The pan reads the pivot and the reduce-motion flag off shared values rather
+  // than closing over them, so the gesture object itself is built once and its
+  // handler tag stays valid: the sheet resolves it exactly once, when its own
+  // content pan attaches.
+  const pivotSv = useSharedValue({ cx: 0, cy: 0 });
+  const reducedSv = useSharedValue(reduced);
+  React.useEffect(() => {
+    pivotSv.value = { cx, cy };
+  }, [cx, cy, pivotSv]);
+  React.useEffect(() => {
+    reducedSv.value = reduced;
+  }, [reduced, reducedSv]);
 
   const zoneColors = React.useMemo(
     () => [colors.textSecondary, colors.statusDueSoon, colors.statusOverdue],
@@ -134,13 +151,14 @@ export const SeverityDial = React.memo(function SeverityDial({ value, onChange }
   );
 
   /** JS side of a detent change: one selection tick, then tell the parent. */
-  const notifyDetent = React.useCallback(
-    (idx: number) => {
-      haptic.select();
-      onChange(SEVERITIES[idx]);
-    },
-    [onChange]
-  );
+  const onChangeRef = React.useRef(onChange);
+  React.useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+  const notifyDetent = React.useCallback((idx: number) => {
+    haptic.select();
+    onChangeRef.current(SEVERITIES[idx]);
+  }, []);
 
   /** Tap zones and accessibility actions select a detent directly. */
   const selectDetent = React.useCallback(
@@ -169,13 +187,19 @@ export const SeverityDial = React.memo(function SeverityDial({ value, onChange }
     () =>
       Gesture.Pan()
         .maxPointers(1)
-        .activeOffsetX([-5, 5])
-        .failOffsetY([-16, 16])
+        // No directional filter: arcing the needle is direct manipulation, and
+        // the arc turns vertical at both ends, so a fail-on-vertical rule (what
+        // this used to do) handed exactly those drags to the sheet. A short
+        // minimum distance keeps the three detent zones tappable, and winning
+        // the activation race is also what keeps the scrollable from scrolling
+        // under the finger.
+        .minDistance(2)
         .shouldCancelWhenOutside(false)
         .onUpdate((e) => {
           'worklet';
-          const dx = e.x - cx;
-          const dy = e.y - cy;
+          const { cx: px, cy: py } = pivotSv.value;
+          const dx = e.x - px;
+          const dy = e.y - py;
           let t: number;
           if (dy < 0) {
             t = (Math.atan2(dy, dx) + Math.PI) / Math.PI;
@@ -192,10 +216,27 @@ export const SeverityDial = React.memo(function SeverityDial({ value, onChange }
         })
         .onFinalize(() => {
           'worklet';
-          angle.value = withSpring(DETENT_T[detentIdx.value], releaseSpring);
+          // Reduce motion: snap to the detent, no overshoot. The drag itself stays.
+          const config = reducedSv.value
+            ? { ...springs.snappy, overshootClamping: true }
+            : springs.snappy;
+          angle.value = withSpring(DETENT_T[detentIdx.value], config);
         }),
-    [cx, cy, releaseSpring, notifyDetent, angle, detentIdx]
+    [notifyDetent, angle, detentIdx, pivotSv, reducedSv]
   );
+
+  /**
+   * Hand the pan to the sheet so its content-panning gesture waits on it
+   * (DESIGN.md 6.6). No-op outside a sheet.
+   */
+  const sheetBlockerRef = sheetGestures?.contentPanBlockerRef;
+  React.useEffect(() => {
+    if (!sheetBlockerRef) return;
+    sheetBlockerRef.current = pan;
+    return () => {
+      if (sheetBlockerRef.current === pan) sheetBlockerRef.current = undefined;
+    };
+  }, [sheetBlockerRef, pan]);
 
   const onLayout = React.useCallback((e: LayoutChangeEvent) => {
     setWidth(e.nativeEvent.layout.width);

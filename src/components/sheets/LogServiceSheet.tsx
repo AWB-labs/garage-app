@@ -11,6 +11,7 @@ import type { ServiceRecord, ServiceType } from '@/lib/types';
 import { SERVICE_TYPES, SERVICE_TYPE_LABELS, serviceLabel } from '@/lib/types';
 import { useGarageStore } from '@/stores/garage';
 import { useSettingsStore } from '@/stores/settings';
+import { useSheetsStore } from '@/stores/sheets';
 import { haptic, hitTarget, radius, space, useTheme } from '@/theme';
 import { AppText, Button, Icon, PressableScale, SegmentedControl, type IconName } from '@/components/ui';
 import { Field, FieldRow } from './Field';
@@ -21,6 +22,8 @@ export interface LogServiceSheetProps {
   service?: ServiceRecord;
   resolvesIssueId?: string;
   prefillType?: ServiceType;
+  /** Seeds the Service name when a custom reminder was marked done. */
+  prefillCustomLabel?: string;
   onClose: () => void;
 }
 
@@ -40,7 +43,14 @@ const PHOTO_TILE = 64;
 const REMOVE_SIZE = 22;
 const REMOVE_HIT_SLOP = (hitTarget - REMOVE_SIZE) / 2;
 
-export function LogServiceSheet({ vehicleId, service, resolvesIssueId, prefillType, onClose }: LogServiceSheetProps) {
+export function LogServiceSheet({
+  vehicleId,
+  service,
+  resolvesIssueId,
+  prefillType,
+  prefillCustomLabel,
+  onClose,
+}: LogServiceSheetProps) {
   const sheetRef = React.useRef<GarageSheetHandle>(null);
   const { colors } = useTheme();
   const unit = useSettingsStore((s) => s.unit);
@@ -52,8 +62,18 @@ export function LogServiceSheet({ vehicleId, service, resolvesIssueId, prefillTy
   const updateService = useGarageStore((s) => s.updateService);
   const deleteService = useGarageStore((s) => s.deleteService);
 
+  // "Mark done" on a custom reminder carries the rule's name on the request.
+  // Read it straight off the request as well as the prop, so the label lands
+  // here whichever way the host wires it: without the name the saved service
+  // cannot match the rule, and the reminder would never reset.
+  const requestedLabel = useSheetsStore((s) =>
+    s.current?.kind === 'logService' ? s.current.prefillCustomLabel : undefined
+  );
+
   const [type, setType] = React.useState<ServiceType>(service?.type ?? prefillType ?? 'oil');
-  const [customLabel, setCustomLabel] = React.useState(service?.customLabel ?? '');
+  const [customLabel, setCustomLabel] = React.useState(
+    service?.customLabel ?? prefillCustomLabel ?? requestedLabel ?? ''
+  );
   const [date, setDate] = React.useState<Date>(service ? new Date(service.date) : new Date());
   const [showDatePicker, setShowDatePicker] = React.useState(false);
   const [mileage, setMileage] = React.useState(

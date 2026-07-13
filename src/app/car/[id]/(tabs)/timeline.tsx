@@ -48,6 +48,7 @@ import {
   radius,
   space,
   springs,
+  staggerStep,
   useMotion,
   useTheme,
   type ColorToken,
@@ -71,24 +72,25 @@ const AnimatedFlashList = Animated.createAnimatedComponent(
 const NODE_SIZE = 28;
 /** Rows past this index enter together: deep scrolling is never delayed. */
 const STAGGER_CAP = 8;
+/** After this window the mount choreography is over; later rows enter plain. */
+const ENTRANCE_WINDOW_MS = staggerStep * 16;
 const LIST_BOTTOM_PAD = space.xl4;
+/**
+ * The Skia tape is built in coarse steps and trimmed to the exact content end
+ * by the rail's clip, so growing content rebuilds the path a handful of times
+ * instead of on every content-size change. A multiple of the tick cadence keeps
+ * the tick phase stable as the step grows.
+ */
+const RAIL_PATH_STEP = 960;
+
+/** Reanimated entering config, as accepted by Animated.View. */
+type EnteringProp = React.ComponentProps<typeof Animated.View>['entering'];
 
 const SEVERITY_TINT: Record<IssueSeverity, ColorToken> = {
   critical: 'statusOverdue',
   medium: 'statusDueSoon',
   low: 'textSecondary',
 };
-
-/** Entrance: staggered settle springs for the first screenful, plain fade when reduced. */
-function useRowEntering(index: number) {
-  const { reduced, stagger } = useMotion();
-  if (reduced) return FadeIn.duration(durations.fadeFast);
-  return FadeInDown.delay(stagger(Math.min(index, STAGGER_CAP)))
-    .springify()
-    .damping(springs.settle.damping)
-    .stiffness(springs.settle.stiffness)
-    .mass(springs.settle.mass);
-}
 
 /** Node glyph over the rail. Solid bg so the tape never bleeds through. */
 function Node({ icon, tint, ring }: { icon: IconName; tint: string; ring: string }) {
@@ -112,7 +114,6 @@ function Node({ icon, tint, ring }: { icon: IconName; tint: string; ring: string
 }
 
 interface RowShellProps {
-  index: number;
   node: React.ReactNode;
   accessibilityLabel: string;
   /** Omitted for mileage rows: they are plain, not buttons. */
@@ -120,8 +121,12 @@ interface RowShellProps {
   children: React.ReactNode;
 }
 
-function RowShell({ index, node, accessibilityLabel, onPress, children }: RowShellProps) {
-  const entering = useRowEntering(index);
+/**
+ * The entrance animation lives on the wrapper in renderItem, not here: rows
+ * mount fresh whenever FlashList has no free cell in the pool for their event
+ * kind, so the screen gates `entering` behind a one-shot mount window.
+ */
+function RowShell({ node, accessibilityLabel, onPress, children }: RowShellProps) {
   const inner = (
     <>
       <View style={{ width: RAIL_GUTTER, alignItems: 'center', paddingTop: space.xs2 }}>{node}</View>
@@ -134,23 +139,19 @@ function RowShell({ index, node, accessibilityLabel, onPress, children }: RowShe
     paddingVertical: space.md,
     minHeight: hitTarget,
   } as const;
-  return (
-    <Animated.View entering={entering}>
-      {onPress ? (
-        <PressableScale
-          accessibilityLabel={accessibilityLabel}
-          onPress={onPress}
-          pressedScale={0.98}
-          style={rowStyle}
-        >
-          {inner}
-        </PressableScale>
-      ) : (
-        <View accessible accessibilityLabel={accessibilityLabel} style={rowStyle}>
-          {inner}
-        </View>
-      )}
-    </Animated.View>
+  return onPress ? (
+    <PressableScale
+      accessibilityLabel={accessibilityLabel}
+      onPress={onPress}
+      pressedScale={0.98}
+      style={rowStyle}
+    >
+      {inner}
+    </PressableScale>
+  ) : (
+    <View accessible accessibilityLabel={accessibilityLabel} style={rowStyle}>
+      {inner}
+    </View>
   );
 }
 
@@ -166,11 +167,9 @@ function RowCaption({ text }: { text: string }) {
 const ServiceRow = React.memo(function ServiceRow({
   service,
   vehicleId,
-  index,
 }: {
   service: ServiceRecord;
   vehicleId: string;
-  index: number;
 }) {
   const { colors } = useTheme();
   const unit = useSettingsStore((s) => s.unit);
@@ -179,7 +178,6 @@ const ServiceRow = React.memo(function ServiceRow({
   const dateText = format(new Date(service.date), 'd MMM yyyy');
   return (
     <RowShell
-      index={index}
       accessibilityLabel={`${label}, ${dateText}. View service details`}
       onPress={() =>
         router.push({
@@ -214,17 +212,14 @@ const ServiceRow = React.memo(function ServiceRow({
 const IssueRow = React.memo(function IssueRow({
   issue,
   vehicleId,
-  index,
 }: {
   issue: Issue;
   vehicleId: string;
-  index: number;
 }) {
   const { colors } = useTheme();
   const dateText = format(new Date(issue.createdAt), 'd MMM yyyy');
   return (
     <RowShell
-      index={index}
       accessibilityLabel={`${issue.title}. Severity ${ISSUE_SEVERITY_LABELS[issue.severity]}, status ${ISSUE_STATUS_LABELS[issue.status]}. View issue`}
       onPress={() =>
         router.push({
@@ -247,18 +242,15 @@ const IssueRow = React.memo(function IssueRow({
 const NoteRow = React.memo(function NoteRow({
   note,
   vehicleId,
-  index,
 }: {
   note: Note;
   vehicleId: string;
-  index: number;
 }) {
   const { colors } = useTheme();
   const openSheet = useSheetsStore((s) => s.open);
   const dateText = format(new Date(note.createdAt), 'd MMM yyyy');
   return (
     <RowShell
-      index={index}
       accessibilityLabel={`Note, ${dateText}. Edit note`}
       onPress={() => openSheet({ kind: 'note', vehicleId, note })}
       node={<Node icon="dot" tint={colors.textMuted} ring={colors.hairline} />}
@@ -269,14 +261,13 @@ const NoteRow = React.memo(function NoteRow({
   );
 });
 
-const MileageRow = React.memo(function MileageRow({ log, index }: { log: MileageLog; index: number }) {
+const MileageRow = React.memo(function MileageRow({ log }: { log: MileageLog }) {
   const { colors } = useTheme();
   const unit = useSettingsStore((s) => s.unit);
   const reading = formatMileage(log.mileage, unit);
   const dateText = format(new Date(log.date), 'd MMM yyyy');
   return (
     <RowShell
-      index={index}
       accessibilityLabel={`Mileage update, ${reading}, ${dateText}`}
       node={<Node icon="odometer" tint={colors.textMuted} ring={colors.hairline} />}
     >
@@ -291,22 +282,20 @@ const MileageRow = React.memo(function MileageRow({ log, index }: { log: Mileage
 
 const TimelineRow = React.memo(function TimelineRow({
   event,
-  index,
   vehicleId,
 }: {
   event: TimelineEvent;
-  index: number;
   vehicleId: string;
 }) {
   switch (event.kind) {
     case 'service':
-      return <ServiceRow service={event.service} vehicleId={vehicleId} index={index} />;
+      return <ServiceRow service={event.service} vehicleId={vehicleId} />;
     case 'issue':
-      return <IssueRow issue={event.issue} vehicleId={vehicleId} index={index} />;
+      return <IssueRow issue={event.issue} vehicleId={vehicleId} />;
     case 'note':
-      return <NoteRow note={event.note} vehicleId={vehicleId} index={index} />;
+      return <NoteRow note={event.note} vehicleId={vehicleId} />;
     case 'mileage':
-      return <MileageRow log={event.mileage} index={index} />;
+      return <MileageRow log={event.mileage} />;
   }
 });
 
@@ -327,15 +316,51 @@ export default function TimelineScreen() {
   );
 
   const scrollY = useSharedValue(0);
+  /**
+   * Exact content-space end of the tape, in a shared value: the rail's clip
+   * follows the growing content on the UI thread, so a content-size change
+   * never re-renders this screen or rebuilds the Skia path.
+   */
+  const railEnd = useSharedValue(0);
   const [refreshing, setRefreshing] = React.useState(false);
   const [refreshError, setRefreshError] = React.useState<string | null>(null);
   const [viewport, setViewport] = React.useState({ width: 0, height: 0 });
-  const [contentHeight, setContentHeight] = React.useState(0);
+  /** Coarse, monotone path length. Only this crosses back into React. */
+  const [railPathEnd, setRailPathEnd] = React.useState(0);
   const [headerHeight, setHeaderHeight] = React.useState(0);
   const refreshBusy = React.useRef(false);
+  const mounted = React.useRef(true);
 
-  /** Android and reduce-motion use the plain tinted RefreshControl; iOS gets the gauge. */
+  React.useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    []
+  );
+
+  // Entrance choreography runs once per mount; rows mounted later (scroll,
+  // recycling into a pool with no free cell) skip it so the list never
+  // re-staggers mid-fling.
+  const entranceActive = React.useRef(true);
+  React.useEffect(() => {
+    const t = setTimeout(() => {
+      entranceActive.current = false;
+    }, ENTRANCE_WINDOW_MS);
+    return () => clearTimeout(t);
+  }, []);
+
+  /** iOS with motion on shows the Skia gauge; every path keeps a RefreshControl. */
   const iosGauge = Platform.OS === 'ios' && !reduced;
+
+  const onContentSizeChange = React.useCallback(
+    (_w: number, h: number) => {
+      const next = Math.max(0, Math.round(h) - LIST_BOTTOM_PAD);
+      railEnd.value = next;
+      const step = Math.ceil(next / RAIL_PATH_STEP) * RAIL_PATH_STEP;
+      setRailPathEnd((prev) => (prev >= step ? prev : step));
+    },
+    [railEnd]
+  );
 
   const startRefresh = React.useCallback(() => {
     if (refreshBusy.current) return;
@@ -345,13 +370,18 @@ export default function TimelineScreen() {
     /** hydrate() is cheap and local; hold briefly so the gauge spin reads. */
     const settle = new Promise((resolve) => setTimeout(resolve, 650));
     void Promise.all([useGarageStore.getState().hydrate(), settle])
-      .catch(() => setRefreshError("Couldn't refresh. Pull down to try again."))
+      .then(() => {
+        /** Confirming tick on the success path only, and only where the needle settles. */
+        if (mounted.current && iosGauge) haptic.tick();
+      })
+      .catch(() => {
+        if (mounted.current) setRefreshError("Couldn't refresh. Pull down to try again.");
+      })
       .finally(() => {
         refreshBusy.current = false;
-        setRefreshing(false);
-        haptic.tick();
+        if (mounted.current) setRefreshing(false);
       });
-  }, []);
+  }, [iosGauge]);
 
   const scrollHandler = useAnimatedScrollHandler(
     {
@@ -368,10 +398,23 @@ export default function TimelineScreen() {
   );
 
   const renderItem = React.useCallback(
-    ({ item, index }: ListRenderItemInfo<TimelineEvent>) => (
-      <TimelineRow event={item} index={index} vehicleId={id} />
-    ),
-    [id]
+    ({ item, index }: ListRenderItemInfo<TimelineEvent>) => {
+      const entering: EnteringProp = !entranceActive.current
+        ? undefined
+        : reduced
+          ? FadeIn.duration(durations.fadeFast)
+          : FadeInDown.delay(stagger(Math.min(index, STAGGER_CAP)))
+              .springify()
+              .damping(springs.settle.damping)
+              .stiffness(springs.settle.stiffness)
+              .mass(springs.settle.mass);
+      return (
+        <Animated.View entering={entering}>
+          <TimelineRow event={item} vehicleId={id} />
+        </Animated.View>
+      );
+    },
+    [id, reduced, stagger]
   );
 
   if (!vehicle) return null;
@@ -385,8 +428,7 @@ export default function TimelineScreen() {
         .mass(springs.settle.mass);
 
   const railTop = headerHeight + space.md;
-  const railEnd = contentHeight - LIST_BOTTOM_PAD;
-  const showRail = events.length > 0 && viewport.height > 0 && railEnd > railTop;
+  const showRail = events.length > 0 && viewport.height > 0 && railPathEnd > railTop;
 
   return (
     <Screen padded={false}>
@@ -405,6 +447,7 @@ export default function TimelineScreen() {
             x={space.lg + RAIL_GUTTER / 2}
             top={railTop}
             end={railEnd}
+            pathEnd={railPathEnd}
             width={viewport.width}
             viewportHeight={viewport.height}
           />
@@ -416,19 +459,23 @@ export default function TimelineScreen() {
           renderItem={renderItem}
           onScroll={scrollHandler}
           scrollEventThrottle={16}
-          onContentSizeChange={(_w, h) => setContentHeight(Math.round(h))}
+          onContentSizeChange={onContentSizeChange}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: LIST_BOTTOM_PAD }}
           refreshControl={
-            !iosGauge ? (
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={startRefresh}
-                tintColor={colors.accent}
-                colors={[colors.accent]}
-                progressBackgroundColor={colors.card}
-              />
-            ) : undefined
+            /**
+             * Always mounted, on both platforms: it holds the pulled-open gutter
+             * while refreshing and it is the only refresh affordance a screen
+             * reader can reach. On the iOS gauge path its own spinner is tinted
+             * out so the Skia gauge is the single visual (DESIGN.md 6.8).
+             */
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={startRefresh}
+              tintColor={iosGauge ? 'transparent' : colors.accent}
+              colors={[colors.accent]}
+              progressBackgroundColor={colors.card}
+            />
           }
           ListHeaderComponent={
             <View onLayout={(e) => setHeaderHeight(Math.round(e.nativeEvent.layout.height))}>

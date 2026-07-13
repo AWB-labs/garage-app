@@ -6,6 +6,7 @@ import Animated, {
   FadeOut,
   ReduceMotion,
   runOnJS,
+  runOnUI,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
@@ -35,7 +36,43 @@ const CELL_HEIGHT = Math.round(numHeroSize * 1.1);
 const CELL_WIDTH = Math.round(numHeroSize * 0.62);
 /** The strip repeats 0-9 twice so a 9 to 0 roll travels forward; a 10-cell shift is invisible. */
 const STRIP = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+/** One full 0-9 revolution of the strip. Shifting by this is invisible. */
+const STRIP_CYCLE = 10;
 const GLOW_PAD = space.xl2;
+
+/**
+ * Roll one digit strip to `toDigit`, always forward.
+ *
+ * Runs on the UI thread, which is the whole point: the strip's live position is
+ * the only authority on where a digit physically is. A value change landing
+ * mid-roll used to be reconciled against the JS-side string, which had already
+ * advanced, so the wrap check no-opped, the replacement spring inherited the
+ * previous velocity, and the digit span BACKWARDS. Here nothing about the roll
+ * is decided from stale JS state:
+ *
+ * 1. Normalize the strip into its first revolution. STRIP repeats 0-9, so a
+ *    whole number of cycles is an invisible shift, and re-assigning the value
+ *    cancels any in-flight spring at an equivalent spot with no stale velocity.
+ * 2. Aim at the next occurrence of `toDigit` at or ahead of that position, so
+ *    the strip is monotonic: the digit can only ever roll forward.
+ *
+ * Both steps keep the index inside STRIP's 20 cells.
+ */
+function rollDigit(position: SharedValue<number>, toDigit: number, leader: boolean) {
+  'worklet';
+  let start = position.value % STRIP_CYCLE;
+  if (start < 0) start += STRIP_CYCLE;
+  const target = toDigit < start ? toDigit + STRIP_CYCLE : toDigit;
+  position.value = start;
+  if (leader) {
+    position.value = withSpring(target, springs.settle, (finished) => {
+      'worklet';
+      if (finished) runOnJS(haptic.tick)();
+    });
+  } else {
+    position.value = withSpring(target, springs.settle);
+  }
+}
 
 function groupDigits(n: number): string {
   return Math.max(0, Math.round(n))
@@ -147,24 +184,15 @@ export function Odometer({ value, unit }: OdometerProps) {
       }
     }
     if (leader < 0) return;
+    // The strings only decide WHICH digits changed and which one leads. Where a
+    // strip physically is, and therefore how far forward it must roll, is read
+    // on the UI thread inside rollDigit.
     for (let i = 0; i < len; i++) {
       if (from[i] === to[i]) continue;
       const indexFromRight = len - 1 - i;
       const position = registry.current.get(indexFromRight);
       if (!position) continue;
-      // Normalize out of the duplicated half of the strip before rolling.
-      if (position.value >= 10) position.value -= 10;
-      const fromDigit = Number(from[i]);
-      const toDigit = Number(to[i]);
-      const target = toDigit < fromDigit ? toDigit + 10 : toDigit;
-      if (indexFromRight === leader) {
-        position.value = withSpring(target, springs.settle, (finished) => {
-          'worklet';
-          if (finished) runOnJS(haptic.tick)();
-        });
-      } else {
-        position.value = withSpring(target, springs.settle);
-      }
+      runOnUI(rollDigit)(position, Number(to[i]), indexFromRight === leader);
     }
   }, [display]);
 

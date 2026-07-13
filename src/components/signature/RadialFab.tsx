@@ -156,7 +156,10 @@ const ActionButton = React.memo(function ActionButton({
         bloom,
       ]}
     >
+      {/* The chip repeats the button's own label, so it is decorative to a reader. */}
       <View
+        accessible={false}
+        importantForAccessibility="no-hide-descendants"
         style={{
           backgroundColor: colors.card,
           borderWidth: 1,
@@ -201,8 +204,27 @@ export function RadialFab({ vehicleId }: RadialFabProps) {
   const progress = useSharedValue(0);
   const mounted = anchor != null;
 
+  /** measureInWindow is async: the screen can be popped before it calls back. */
+  const aliveRef = React.useRef(true);
+  React.useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
+
+  // A close is never re-entrant. Reanimated cancels an in-flight animation when
+  // its shared value is re-assigned and calls the previous callback with
+  // finished=false, so a second closeBloom used to swallow the first one's
+  // queued action (the tapped quick action never opened its sheet). The bloom
+  // also stops taking touches the moment a close begins, so a second tap on the
+  // still-visible scrim or action row cannot land at all.
+  const closingRef = React.useRef(false);
+  const [closing, setClosing] = React.useState(false);
+
   const openBloom = () => {
     fabRef.current?.measureInWindow((x, y) => {
+      if (!aliveRef.current) return;
       haptic.press();
       setAnchor({ x, y });
     });
@@ -215,27 +237,32 @@ export function RadialFab({ vehicleId }: RadialFabProps) {
       : withSpring(1, springs.bloom);
   }, [mounted, reduced, progress]);
 
-  const unmountBloom = React.useCallback((after?: () => void) => {
-    setAnchor(null);
-    after?.();
-  }, []);
-
   const closeBloom = React.useCallback(
     (after?: () => void) => {
-      const finish = () => unmountBloom(after);
+      if (closingRef.current) return;
+      closingRef.current = true;
+      setClosing(true);
+      // Runs whether or not the exit settled: an interruption must never lose
+      // the user's action.
+      const finish = () => {
+        closingRef.current = false;
+        setClosing(false);
+        if (aliveRef.current) setAnchor(null);
+        after?.();
+      };
       if (reduced) {
-        progress.value = withTiming(0, { duration: durations.fadeFast }, (finished) => {
+        progress.value = withTiming(0, { duration: durations.fadeFast }, () => {
           'worklet';
-          if (finished) runOnJS(finish)();
+          runOnJS(finish)();
         });
       } else {
-        progress.value = withSpring(0, springs.snappy, (finished) => {
+        progress.value = withSpring(0, springs.snappy, () => {
           'worklet';
-          if (finished) runOnJS(finish)();
+          runOnJS(finish)();
         });
       }
     },
-    [reduced, progress, unmountBloom]
+    [reduced, progress]
   );
 
   React.useEffect(() => {
@@ -275,67 +302,93 @@ export function RadialFab({ vehicleId }: RadialFabProps) {
 
   return (
     <>
+      {/*
+        The base lamp stays mounted at opacity 0 while the bloom is up (the
+        portal draws its own copy at the same anchor). Alpha means nothing to
+        TalkBack, so it has to be pulled out of the accessibility tree or the
+        reader announces a second, invisible "Quick actions" button.
+      */}
       <View
         ref={fabRef}
         collapsable={false}
         pointerEvents={mounted ? 'none' : 'box-none'}
+        accessibilityElementsHidden={mounted}
+        importantForAccessibility={mounted ? 'no-hide-descendants' : 'auto'}
         style={{ opacity: mounted ? 0 : 1 }}
       >
         <FabCircle label="Quick actions" expanded={false} progress={progress} onPress={openBloom} />
       </View>
       {mounted && anchor ? (
-        <Portal id="radial-fab-bloom">
-          <AnimatedPressable
-            accessibilityElementsHidden
-            importantForAccessibility="no"
-            onPress={() => closeBloom()}
-            style={[StyleSheet.absoluteFill, { backgroundColor: colors.scrim }, scrimStyle]}
-          />
-          <Canvas
-            pointerEvents="none"
-            style={{
-              position: 'absolute',
-              left: fabCenter.x - ARC_BOX,
-              top: fabCenter.y - ARC_BOX,
-              width: ARC_BOX * 2,
-              height: ARC_BOX * 2,
-            }}
+        <Portal id="radial-fab-bloom" modal>
+          {/*
+            The open bloom is a modal, not just a dim: accessibilityViewIsModal
+            takes the layer's siblings out of the iOS accessibility tree, and the
+            scrim is a real dismiss target rather than a hidden decoration, so a
+            reader always has a way out of the layer. Touches are dropped for the
+            whole exit so a second tap cannot land on a fading control.
+          */}
+          {/*
+            box-only during the exit: the layer keeps swallowing touches, so a
+            second tap can neither re-enter the close nor fall through to the
+            dashboard underneath, but no fading control can fire either.
+          */}
+          <View
+            accessibilityViewIsModal
+            pointerEvents={closing ? 'box-only' : 'box-none'}
+            style={StyleSheet.absoluteFill}
           >
-            <Group opacity={arcOpacity}>
-              <Path path={arcPaths.arc} style="stroke" strokeWidth={1} color={colors.hairline} />
-              <Path path={arcPaths.ticks} style="stroke" strokeWidth={1.5} color={colors.stroke} />
-            </Group>
-          </Canvas>
-          {ACTIONS.map((action, index) => {
-            const a = (action.angleDeg * Math.PI) / 180;
-            const centerX = fabCenter.x + Math.cos(a) * ARC_RADIUS;
-            const centerY = fabCenter.y + Math.sin(a) * ARC_RADIUS;
-            return (
-              <ActionButton
-                key={action.label}
-                index={index}
-                action={action}
-                centerX={centerX}
-                centerY={centerY}
-                fabX={fabCenter.x}
-                fabY={fabCenter.y}
-                windowWidth={windowWidth}
-                progress={progress}
-                reduced={reduced}
-                onPress={() => {
-                  haptic.select();
-                  closeBloom(() => openSheet(action.sheet(vehicleId)));
-                }}
-              />
-            );
-          })}
-          <View style={{ position: 'absolute', left: anchor.x, top: anchor.y }}>
-            <FabCircle
-              label="Close quick actions"
-              expanded
-              progress={progress}
+            <AnimatedPressable
+              accessibilityRole="button"
+              accessibilityLabel="Close quick actions"
               onPress={() => closeBloom()}
+              style={[StyleSheet.absoluteFill, { backgroundColor: colors.scrim }, scrimStyle]}
             />
+            <Canvas
+              pointerEvents="none"
+              style={{
+                position: 'absolute',
+                left: fabCenter.x - ARC_BOX,
+                top: fabCenter.y - ARC_BOX,
+                width: ARC_BOX * 2,
+                height: ARC_BOX * 2,
+              }}
+            >
+              <Group opacity={arcOpacity}>
+                <Path path={arcPaths.arc} style="stroke" strokeWidth={1} color={colors.hairline} />
+                <Path path={arcPaths.ticks} style="stroke" strokeWidth={1.5} color={colors.stroke} />
+              </Group>
+            </Canvas>
+            {ACTIONS.map((action, index) => {
+              const a = (action.angleDeg * Math.PI) / 180;
+              const centerX = fabCenter.x + Math.cos(a) * ARC_RADIUS;
+              const centerY = fabCenter.y + Math.sin(a) * ARC_RADIUS;
+              return (
+                <ActionButton
+                  key={action.label}
+                  index={index}
+                  action={action}
+                  centerX={centerX}
+                  centerY={centerY}
+                  fabX={fabCenter.x}
+                  fabY={fabCenter.y}
+                  windowWidth={windowWidth}
+                  progress={progress}
+                  reduced={reduced}
+                  onPress={() => {
+                    haptic.select();
+                    closeBloom(() => openSheet(action.sheet(vehicleId)));
+                  }}
+                />
+              );
+            })}
+            <View style={{ position: 'absolute', left: anchor.x, top: anchor.y }}>
+              <FabCircle
+                label="Close quick actions"
+                expanded
+                progress={progress}
+                onPress={() => closeBloom()}
+              />
+            </View>
           </View>
         </Portal>
       ) : null}

@@ -14,7 +14,7 @@ import { formatMoney } from '@/lib/format';
 import type { MonthSpend } from '@/lib/stats';
 import { radius, space, springs, useMotion, useTheme } from '@/theme';
 
-/** Drawing-area height. Bars grow from the baseline toward a small headroom that absorbs spring overshoot. */
+/** Drawing-area height. Bars grow from the baseline toward a small headroom under the max readout. */
 const CHART_HEIGHT = 148;
 /** Portion of the mount-progress timeline across which bar starts are staggered. */
 const STAGGER_SPREAD = 0.55;
@@ -54,7 +54,11 @@ const Bar = React.memo(function Bar({
     if (ratio <= 0) return 0;
     const start = count <= 1 ? 0 : (index / count) * STAGGER_SPREAD;
     const p = Math.max(0, (progress.value - start) / (1 - start));
-    return Math.max(maxHeight * ratio * p, minHeight * Math.min(p, 1));
+    const grown = Math.max(maxHeight * ratio * p, minHeight * Math.min(p, 1));
+    // The settle spring overshoots and the per-bar stagger amplifies it, so a
+    // tall bar would draw past the top of the canvas and be flat-cut. Shorter
+    // bars still bloom; nothing is ever taller than the plot.
+    return Math.min(grown, maxHeight);
   });
   const y = useDerivedValue(() => baseY - height.value);
   return <Rect x={x} y={y} width={width} height={height} color={color} />;

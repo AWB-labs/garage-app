@@ -40,7 +40,10 @@ export function spendByMonth(services: ServiceRecord[], months = 12, now: Date =
   }
   for (const s of services) {
     if (s.cost == null) continue;
-    const bucket = index.get(s.date.slice(0, 7));
+    // Dates persist as ISO instants. Bucket keys above are local months, so the
+    // record must be bucketed locally too, matching the Service log's own
+    // local formatting. Slicing the UTC string drops costs near month edges.
+    const bucket = index.get(format(new Date(s.date), 'yyyy-MM'));
     if (bucket) bucket.total += s.cost;
   }
   return buckets;
@@ -49,7 +52,7 @@ export function spendByMonth(services: ServiceRecord[], months = 12, now: Date =
 export function servicesPerYear(services: ServiceRecord[]): YearCount[] {
   const byYear = new Map<number, number>();
   for (const s of services) {
-    const year = Number(s.date.slice(0, 4));
+    const year = Number(format(new Date(s.date), 'yyyy'));
     byYear.set(year, (byYear.get(year) ?? 0) + 1);
   }
   return [...byYear.entries()].map(([year, count]) => ({ year, count })).sort((a, b) => a.year - b.year);

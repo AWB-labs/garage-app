@@ -1,6 +1,6 @@
 import { FlashList, type ListRenderItemInfo } from '@shopify/flash-list';
 import { addDays, format } from 'date-fns';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useIsFocused, useLocalSearchParams } from 'expo-router';
 import React from 'react';
 import { View } from 'react-native';
 import Animated, {
@@ -44,7 +44,6 @@ import { useSheetsStore } from '@/stores/sheets';
 import {
   durations,
   fonts,
-  haptic,
   hitTarget,
   radius,
   space,
@@ -92,6 +91,17 @@ type Row =
   | { key: string; kind: 'historyEmpty' };
 
 type Entering = React.ComponentProps<typeof Animated.View>['entering'];
+
+/**
+ * What the reward watcher remembers about a rule between renders: its state
+ * plus its completion anchor. The anchor is what separates "a service cleared
+ * this" from "the rule was edited into a healthier state".
+ */
+interface ReminderSignature {
+  state: ReminderState;
+  doneKm: number | null;
+  doneAt: string | null;
+}
 
 /** Concrete urgency copy: "1,000 km or 10 days left", "Overdue by 35 days". */
 function reminderCopy(status: ReminderStatus, unit: DistanceUnit): string {
@@ -198,11 +208,22 @@ const ReminderCard = React.memo(function ReminderCard({ status, pulse }: Reminde
   const glyphStyle = useAnimatedStyle(() => ({ opacity: glyphOpacity.value }));
 
   const openEdit = () => openSheet({ kind: 'reminder', vehicleId: rule.vehicleId, rule });
+  // Custom reminders are matched by their name, so carry it into the sheet:
+  // without it the saved service resets nothing.
   const markDone = () =>
-    openSheet({ kind: 'logService', vehicleId: rule.vehicleId, prefillType: rule.serviceType });
+    openSheet({
+      kind: 'logService',
+      vehicleId: rule.vehicleId,
+      prefillType: rule.serviceType,
+      prefillCustomLabel: rule.customLabel ?? undefined,
+    });
 
   return (
     <Card
+      // The card nests its own actions, so it must not swallow them into one
+      // accessibility element: screen readers reach "Mark done" and the edit
+      // button through their own labels below.
+      accessible={false}
       onPress={openEdit}
       onLongPress={openEdit}
       accessibilityLabel={`${status.label}. ${REMINDER_STATE_LABELS[state]}. ${copy}. Opens the reminder editor`}
@@ -425,6 +446,9 @@ export default function MaintenanceScreen() {
   const services = useGarageStore((s) => s.services);
   const openSheet = useSheetsStore((s) => s.open);
   const { reduced, stagger, fadeDuration } = useMotion();
+  // Tabs stay mounted once visited, so the reward moment has to know whether
+  // this screen is the one on screen.
+  const focused = useIsFocused();
 
   const statuses = React.useMemo(
     () =>
@@ -446,31 +470,46 @@ export default function MaintenanceScreen() {
     [services, vehicle]
   );
 
-  // The reward moment: watch reminder states across renders. When a card
-  // that was overdue or due soon settles back to upcoming (a matching
-  // service was logged), fire its phosphor pulse and the success haptic.
-  const prevStates = React.useRef<Map<string, ReminderState>>(new Map());
+  // The reward moment: watch each rule across renders. A card earns its
+  // phosphor pulse only when it settles back to upcoming AND its completion
+  // anchor moved, which means a service actually cleared it. Widening the
+  // interval in the reminder editor improves the state without touching the
+  // anchor, so it stays quiet: nothing was serviced.
+  //
+  // The success haptic belongs to the save itself (LogServiceSheet fires it),
+  // so the pulse is purely visual here. Firing another one would buzz twice
+  // for one save, and would buzz on a screen the user is not even looking at.
+  const prevStates = React.useRef<Map<string, ReminderSignature>>(new Map());
+  // Rewards earned while another screen is on top wait here: the pulse plays
+  // where it can be seen, not on the unfocused tab.
+  const pendingRewards = React.useRef<Set<string>>(new Set());
   const [pulses, setPulses] = React.useState<Record<string, number>>({});
   React.useEffect(() => {
-    const next = new Map<string, ReminderState>();
-    const rewarded: string[] = [];
+    const next = new Map<string, ReminderSignature>();
     for (const st of statuses) {
-      next.set(st.rule.id, st.state);
+      const signature: ReminderSignature = {
+        state: st.state,
+        doneKm: st.rule.lastDoneMileage,
+        doneAt: st.rule.lastDoneDate,
+      };
+      next.set(st.rule.id, signature);
       const prev = prevStates.current.get(st.rule.id);
-      if ((prev === 'overdue' || prev === 'dueSoon') && st.state === 'upcoming') {
-        rewarded.push(st.rule.id);
-      }
+      if (!prev) continue;
+      const cleared = (prev.state === 'overdue' || prev.state === 'dueSoon') && st.state === 'upcoming';
+      const serviced = prev.doneKm !== signature.doneKm || prev.doneAt !== signature.doneAt;
+      if (cleared && serviced) pendingRewards.current.add(st.rule.id);
     }
     prevStates.current = next;
-    if (rewarded.length > 0) {
-      haptic.save();
-      setPulses((p) => {
-        const nextPulses = { ...p };
-        for (const ruleId of rewarded) nextPulses[ruleId] = (nextPulses[ruleId] ?? 0) + 1;
-        return nextPulses;
-      });
-    }
-  }, [statuses]);
+
+    if (!focused || pendingRewards.current.size === 0) return;
+    const rewarded = [...pendingRewards.current];
+    pendingRewards.current.clear();
+    setPulses((p) => {
+      const nextPulses = { ...p };
+      for (const ruleId of rewarded) nextPulses[ruleId] = (nextPulses[ruleId] ?? 0) + 1;
+      return nextPulses;
+    });
+  }, [statuses, focused]);
 
   // Entrance choreography runs once per mount; rows mounted later (scroll,
   // recycling) skip it so the list never re-staggers mid-session.

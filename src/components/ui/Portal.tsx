@@ -10,10 +10,11 @@ import { StyleSheet, View } from 'react-native';
 interface PortalEntry {
   id: string;
   node: React.ReactNode;
+  modal: boolean;
 }
 
 interface PortalContextValue {
-  mount: (id: string, node: React.ReactNode) => void;
+  mount: (id: string, node: React.ReactNode, modal: boolean) => void;
   unmount: (id: string) => void;
 }
 
@@ -22,8 +23,8 @@ const PortalContext = React.createContext<PortalContextValue | null>(null);
 export function PortalProvider({ children }: { children: React.ReactNode }) {
   const [entries, setEntries] = React.useState<PortalEntry[]>([]);
 
-  const mount = React.useCallback((id: string, node: React.ReactNode) => {
-    setEntries((prev) => [...prev.filter((e) => e.id !== id), { id, node }]);
+  const mount = React.useCallback((id: string, node: React.ReactNode, modal: boolean) => {
+    setEntries((prev) => [...prev.filter((e) => e.id !== id), { id, node, modal }]);
   }, []);
 
   const unmount = React.useCallback((id: string) => {
@@ -32,9 +33,20 @@ export function PortalProvider({ children }: { children: React.ReactNode }) {
 
   const value = React.useMemo(() => ({ mount, unmount }), [mount, unmount]);
 
+  // iOS honors accessibilityViewIsModal on the overlay itself, but TalkBack has
+  // no equivalent: the app behind a modal overlay stays focusable unless the
+  // host is explicitly hidden from assistive tech while one is mounted.
+  const hasModal = entries.some((e) => e.modal);
+
   return (
     <PortalContext.Provider value={value}>
-      <View style={styles.host}>{children}</View>
+      <View
+        style={styles.host}
+        importantForAccessibility={hasModal ? 'no-hide-descendants' : 'auto'}
+        accessibilityElementsHidden={hasModal}
+      >
+        {children}
+      </View>
       {entries.map((entry) => (
         <View key={entry.id} style={StyleSheet.absoluteFill} pointerEvents="box-none">
           {entry.node}
@@ -44,16 +56,27 @@ export function PortalProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+export interface PortalProps {
+  id: string;
+  /**
+   * Traps assistive-tech focus in this overlay while it is mounted. Set it for
+   * anything that reads as a modal (the FAB bloom), not for passive veneers
+   * like the expanding-card clone.
+   */
+  modal?: boolean;
+  children: React.ReactNode;
+}
+
 /** Renders children into the root overlay layer. */
-export function Portal({ id, children }: { id: string; children: React.ReactNode }) {
+export function Portal({ id, modal = false, children }: PortalProps) {
   const ctx = React.useContext(PortalContext);
   if (!ctx) throw new Error('Portal must be used inside PortalProvider');
   const { mount, unmount } = ctx;
 
   React.useEffect(() => {
-    mount(id, children);
+    mount(id, children, modal);
     return () => unmount(id);
-  }, [id, children, mount, unmount]);
+  }, [id, modal, children, mount, unmount]);
 
   return null;
 }

@@ -130,22 +130,32 @@ function IssueDetail({ issue, vehicle }: { issue: Issue; vehicle: Vehicle }) {
     [services, issue.resolvedByServiceId]
   );
 
+  // Inline expander for the resolve-by-service flow: animated height,
+  // fade only when reduced.
+  const [expanded, setExpanded] = React.useState(false);
+  const expandProgress = useSharedValue(0);
+  const contentH = useSharedValue(0);
+
   // The phosphor moment: fires once whenever the issue transitions to fixed,
   // whatever path got it there. Static highlight under reduce motion.
+  //
+  // A fixed issue also puts the resolve expander away. Its subtree unmounts
+  // the moment the issue is fixed, so there is nothing left to animate: the
+  // state is reset outright, and the assignment cancels any in-flight spring.
+  // Without this the panel stays latched open and comes back already expanded,
+  // offering to fix an issue that is already fixed.
   const [glowTrigger, setGlowTrigger] = React.useState(0);
   const prevStatus = React.useRef(issue.status);
   React.useEffect(() => {
     if (prevStatus.current !== 'fixed' && issue.status === 'fixed') {
       setGlowTrigger((t) => t + 1);
     }
+    if (issue.status === 'fixed') {
+      setExpanded(false);
+      expandProgress.value = 0;
+    }
     prevStatus.current = issue.status;
-  }, [issue.status]);
-
-  // Inline expander for the resolve-by-service flow: animated height,
-  // fade only when reduced.
-  const [expanded, setExpanded] = React.useState(false);
-  const expandProgress = useSharedValue(0);
-  const contentH = useSharedValue(0);
+  }, [issue.status, expandProgress]);
 
   const toggleResolve = () => {
     const next = !expanded;
@@ -168,6 +178,10 @@ function IssueDetail({ issue, vehicle }: { issue: Issue; vehicle: Vehicle }) {
   const setStatus = (status: IssueStatus) => {
     if (status === issue.status) return;
     if (status === 'fixed') {
+      // The reward moment is a phosphor pulse plus a success haptic, on every
+      // route to Fixed. RewardPulse fires no haptic of its own, and the other
+      // two routes get theirs from their callers, so this path fires it here.
+      haptic.save();
       // Marking fixed by hand: stamp the date, keep no linked service.
       void updateIssue({
         ...issue,
@@ -342,6 +356,7 @@ function IssueDetail({ issue, vehicle }: { issue: Issue; vehicle: Vehicle }) {
             ]}
             value={issue.status}
             onChange={setStatus}
+            hapticFor={(status) => (status === 'fixed' ? null : haptic.select)}
           />
 
           {issue.status !== 'fixed' ? (
