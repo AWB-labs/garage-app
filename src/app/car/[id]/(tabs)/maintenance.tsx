@@ -1,6 +1,7 @@
 import { FlashList, type ListRenderItemInfo } from '@shopify/flash-list';
 import { addDays, format } from 'date-fns';
-import { router, useIsFocused, useLocalSearchParams } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
+import { router, useLocalSearchParams } from 'expo-router';
 import React from 'react';
 import { View } from 'react-native';
 import Animated, {

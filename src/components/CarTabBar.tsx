@@ -1,4 +1,4 @@
-import type { BottomTabBarProps } from 'expo-router/js-tabs';
+import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import React from 'react';
 import { View } from 'react-native';
 import Animated, { FadeIn, LinearTransition } from 'react-native-reanimated';
