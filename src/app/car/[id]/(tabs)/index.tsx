@@ -1,6 +1,6 @@
 import { Canvas, Path, Skia } from '@shopify/react-native-skia';
 import { Image } from 'expo-image';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router } from 'expo-router';
 import React from 'react';
 import { ScrollView, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
 import Animated, { FadeIn, FadeInDown, LinearTransition, ReduceMotion } from 'react-native-reanimated';
@@ -11,6 +11,7 @@ import { HealthGauge } from '@/components/signature/HealthGauge';
 import { Odometer } from '@/components/signature/Odometer';
 import { RadialFab } from '@/components/signature/RadialFab';
 import { AppText, Card, Icon, Pill, ReminderPill, Screen } from '@/components/ui';
+import { resolveCarImage } from '@/lib/carImage';
 import { formatMileage, kmToDisplay } from '@/lib/format';
 import { healthScore } from '@/lib/health';
 import {
@@ -20,9 +21,10 @@ import {
   type ReminderStatus,
 } from '@/lib/reminders';
 import type { DistanceUnit } from '@/lib/types';
+import { useRouteVehicle } from '@/lib/useRouteVehicle';
 import { useGarageStore } from '@/stores/garage';
 import { useSettingsStore } from '@/stores/settings';
-import { space, springs, useMotion, useTheme } from '@/theme';
+import { durations, space, springs, useMotion, useTheme } from '@/theme';
 
 /**
  * The per-car home: an instrument cluster. Full-bleed hero over a dot-matrix
@@ -76,11 +78,11 @@ function dueCopy(status: ReminderStatus, unit: DistanceUnit): string {
 }
 
 export default function DashboardScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
-  const vehicle = useGarageStore((s) => s.vehicles.find((v) => v.id === id));
+  const { id, vehicle } = useRouteVehicle();
   const reminders = useGarageStore((s) => s.reminders);
   const issues = useGarageStore((s) => s.issues);
   const unit = useSettingsStore((s) => s.unit);
+  const carImageKey = useSettingsStore((s) => s.carImageKey);
   const { colors } = useTheme();
   const { reduced, stagger, fadeDuration } = useMotion();
   const { width: windowWidth } = useWindowDimensions();
@@ -101,6 +103,7 @@ export default function DashboardScreen() {
   if (!vehicle) return null;
 
   const name = vehicle.nickname ?? `${vehicle.make} ${vehicle.model}`;
+  const heroImage = resolveCarImage(vehicle, carImageKey);
   const displayMileage = Math.round(kmToDisplay(vehicle.currentMileage, unit));
   const gaugeWidth = Math.max(180, Math.min(300, windowWidth - space.lg * 2 - space.lg * 2));
   const topStatus: ReminderStatus | undefined = statuses[0];
@@ -142,12 +145,13 @@ export default function DashboardScreen() {
         <View onLayout={onClusterLayout} style={{ position: 'relative' }}>
           {cluster.w > 0 ? <DotMatrix width={cluster.w} height={cluster.h} color={colors.hairline} /> : null}
           <Animated.View entering={enter(0)}>
-            {vehicle.photoUri ? (
+            {heroImage ? (
               <Image
-                source={{ uri: vehicle.photoUri }}
-                contentFit="cover"
+                source={{ uri: heroImage }}
+                contentFit="contain"
                 style={{ width: '100%', height: 190 }}
-                accessibilityLabel={`Photo of ${name}`}
+                transition={durations.fade}
+                accessibilityLabel={`${name}`}
               />
             ) : (
               <View style={{ alignItems: 'center', paddingTop: space.lg }}>

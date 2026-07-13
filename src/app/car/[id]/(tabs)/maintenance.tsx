@@ -1,7 +1,7 @@
 import { FlashList, type ListRenderItemInfo } from '@shopify/flash-list';
 import { addDays, format } from 'date-fns';
 import { useIsFocused } from '@react-navigation/native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router } from 'expo-router';
 import React from 'react';
 import { View } from 'react-native';
 import Animated, {
@@ -39,6 +39,7 @@ import {
 } from '@/lib/reminders';
 import type { DistanceUnit, ServiceRecord, ServiceType } from '@/lib/types';
 import { serviceLabel } from '@/lib/types';
+import { useRouteVehicle } from '@/lib/useRouteVehicle';
 import { useGarageStore } from '@/stores/garage';
 import { useSettingsStore } from '@/stores/settings';
 import { useSheetsStore } from '@/stores/sheets';
@@ -441,8 +442,7 @@ function RemindersEmptyCard({ onAdd }: { onAdd: () => void }) {
 }
 
 export default function MaintenanceScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
-  const vehicle = useGarageStore((s) => s.vehicles.find((v) => v.id === id));
+  const { id, vehicle } = useRouteVehicle();
   const reminders = useGarageStore((s) => s.reminders);
   const services = useGarageStore((s) => s.services);
   const openSheet = useSheetsStore((s) => s.open);

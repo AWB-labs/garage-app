@@ -17,6 +17,7 @@ import {
   PressableScale,
   Screen,
 } from '@/components/ui';
+import { resolveCarImage } from '@/lib/carImage';
 import { formatMileage } from '@/lib/format';
 import type { Vehicle } from '@/lib/types';
 import { useGarageStore } from '@/stores/garage';
@@ -111,10 +112,12 @@ function GarageCard({
   const { colors } = useTheme();
   const { reduced } = useMotion();
   const unit = useSettingsStore((s) => s.unit);
+  const carImageKey = useSettingsStore((s) => s.carImageKey);
   const setActiveVehicle = useGarageStore((s) => s.setActiveVehicle);
   const openSheet = useSheetsStore((s) => s.open);
   const heroRef = React.useRef<View>(null);
   const name = vehicle.nickname ?? `${vehicle.make} ${vehicle.model}`;
+  const cardImage = resolveCarImage(vehicle, carImageKey);
 
   const open = () => {
     setActiveVehicle(vehicle.id);
@@ -143,11 +146,11 @@ function GarageCard({
         collapsable={false}
         style={{ height: 150, backgroundColor: colors.inset, alignItems: 'center', justifyContent: 'center' }}
       >
-        {vehicle.photoUri ? (
+        {cardImage ? (
           <Image
-            source={{ uri: vehicle.photoUri }}
+            source={{ uri: cardImage }}
             style={{ width: '100%', height: '100%' }}
-            contentFit="cover"
+            contentFit="contain"
             transition={200}
           />
         ) : (

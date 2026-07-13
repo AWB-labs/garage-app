@@ -1,6 +1,5 @@
 import { FlashList, type ListRenderItemInfo } from '@shopify/flash-list';
 import { format } from 'date-fns';
-import { useLocalSearchParams } from 'expo-router';
 import React from 'react';
 import { Alert, TextInput, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -17,6 +16,7 @@ import {
   SectionHeader,
 } from '@/components/ui';
 import type { Note } from '@/lib/types';
+import { useRouteVehicle } from '@/lib/useRouteVehicle';
 import { useGarageStore } from '@/stores/garage';
 import { useSheetsStore } from '@/stores/sheets';
 import {
@@ -130,8 +130,7 @@ const NoteRow = React.memo(function NoteRow({ note, entering, onOpen, onTogglePi
 });
 
 export default function NotesScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
-  const vehicle = useGarageStore((s) => s.vehicles.find((v) => v.id === id));
+  const { id, vehicle } = useRouteVehicle();
   const notes = useGarageStore((s) => s.notes);
   const togglePinNote = useGarageStore((s) => s.togglePinNote);
   const deleteNote = useGarageStore((s) => s.deleteNote);
@@ -311,6 +310,7 @@ export default function NotesScreen() {
         </Animated.View>
       </View>
       <FlashList
+        style={{ flex: 1 }}
         data={rows}
         keyExtractor={(row) => row.key}
         getItemType={(row) => (row.kind === 'stamp' ? 'stamp' : row.note.pinned ? 'pinned' : 'note')}

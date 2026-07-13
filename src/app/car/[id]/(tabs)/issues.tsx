@@ -1,5 +1,5 @@
 import { FlashList, type ListRenderItemInfo } from '@shopify/flash-list';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router } from 'expo-router';
 import React from 'react';
 import { View } from 'react-native';
 import Animated, {
@@ -16,6 +16,7 @@ import Animated, {
 import { CarHeader } from '@/components/CarHeader';
 import type { Issue, IssueSeverity } from '@/lib/types';
 import { ISSUE_SEVERITY_LABELS, ISSUE_STATUS_LABELS } from '@/lib/types';
+import { useRouteVehicle } from '@/lib/useRouteVehicle';
 import { useGarageStore } from '@/stores/garage';
 import { useSheetsStore } from '@/stores/sheets';
 import { durations, radius, space, springs, useMotion, useTheme } from '@/theme';
@@ -152,8 +153,7 @@ const IssueCard = React.memo(function IssueCard({
 });
 
 export default function IssuesScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
-  const vehicle = useGarageStore((s) => s.vehicles.find((v) => v.id === id));
+  const { id, vehicle } = useRouteVehicle();
   const issues = useGarageStore((s) => s.issues);
   const openSheet = useSheetsStore((s) => s.open);
   const motion = useMotion();
@@ -224,6 +224,7 @@ export default function IssuesScreen() {
     <Screen>
       <CarHeader vehicle={vehicle} />
       <FlashList
+        style={{ flex: 1 }}
         data={rows}
         keyExtractor={(row) => (row.kind === 'issue' ? row.issue.id : 'fixed-header')}
         getItemType={(row) => row.kind}

@@ -3,10 +3,13 @@ import React from 'react';
 import { ScrollView, TextInput, View } from 'react-native';
 
 import { AppText, Button, Icon, PressableScale, Screen, SectionHeader, SegmentedControl } from '@/components/ui';
+import { DEMO_CAR_IMAGE_KEY } from '@/lib/carImage';
 import { exportGarage } from '@/lib/export';
 import { useGarageStore } from '@/stores/garage';
 import { useSettingsStore } from '@/stores/settings';
 import { fonts, radius, space, useTheme } from '@/theme';
+
+type ImageryMode = 'off' | 'demo' | 'key';
 
 const CURRENCIES = ['EGP', 'USD', 'EUR', 'GBP', 'SAR', 'AED'] as const;
 
@@ -14,8 +17,19 @@ export default function SettingsScreen() {
   const { colors } = useTheme();
   const settings = useSettingsStore();
   const [exporting, setExporting] = React.useState(false);
-  const [keyDraft, setKeyDraft] = React.useState(settings.carImageKey);
   const [keyFocused, setKeyFocused] = React.useState(false);
+
+  // Imagery is one setting with three faces: no key, the demo key, or your own.
+  const storedKey = settings.carImageKey;
+  const imageryMode: ImageryMode =
+    storedKey === '' ? 'off' : storedKey === DEMO_CAR_IMAGE_KEY ? 'demo' : 'key';
+  const [keyDraft, setKeyDraft] = React.useState(imageryMode === 'key' ? storedKey : '');
+
+  const setImageryMode = (mode: ImageryMode) => {
+    if (mode === 'off') settings.setCarImageKey('');
+    else if (mode === 'demo') settings.setCarImageKey(DEMO_CAR_IMAGE_KEY);
+    else settings.setCarImageKey(keyDraft.trim());
+  };
 
   const exportData = async () => {
     setExporting(true);
@@ -81,34 +95,47 @@ export default function SettingsScreen() {
 
         <SectionHeader overline="Optional" title="Car imagery" />
         <AppText variant="small" color="textSecondary" style={{ marginBottom: space.md }}>
-          Paste an imagin.studio customer key and adding a car can fetch a studio render from its make and model.
-          Without a key, Garage draws its own silhouette and stays fully offline.
+          Garage can fetch a studio render of a car from its make, model, and year. Drawn keeps the hand-drawn
+          silhouette and stays fully offline. Demo uses imagin.studio's public key, so renders arrive watermarked.
+          Your own key renders them clean.
         </AppText>
-        <TextInput
-          accessibilityLabel="imagin.studio customer key"
-          value={keyDraft}
-          onChangeText={setKeyDraft}
-          onFocus={() => setKeyFocused(true)}
-          onBlur={() => {
-            setKeyFocused(false);
-            settings.setCarImageKey(keyDraft.trim());
-          }}
-          placeholder="customer-key"
-          placeholderTextColor={colors.textMuted}
-          autoCapitalize="none"
-          autoCorrect={false}
-          style={{
-            minHeight: 48,
-            borderRadius: radius.sm,
-            borderWidth: 1,
-            borderColor: keyFocused ? colors.accentText : colors.stroke,
-            backgroundColor: colors.inset,
-            paddingHorizontal: space.md,
-            fontFamily: fonts.mono,
-            fontSize: 14,
-            color: colors.text,
-          }}
+        <SegmentedControl
+          options={[
+            { value: 'off', label: 'Drawn' },
+            { value: 'demo', label: 'Demo' },
+            { value: 'key', label: 'My key' },
+          ]}
+          value={imageryMode}
+          onChange={setImageryMode}
         />
+        {imageryMode === 'key' ? (
+          <TextInput
+            accessibilityLabel="imagin.studio customer key"
+            value={keyDraft}
+            onChangeText={setKeyDraft}
+            onFocus={() => setKeyFocused(true)}
+            onBlur={() => {
+              setKeyFocused(false);
+              settings.setCarImageKey(keyDraft.trim());
+            }}
+            placeholder="customer-key"
+            placeholderTextColor={colors.textMuted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            style={{
+              marginTop: space.md,
+              minHeight: 48,
+              borderRadius: radius.sm,
+              borderWidth: 1,
+              borderColor: keyFocused ? colors.accentText : colors.stroke,
+              backgroundColor: colors.inset,
+              paddingHorizontal: space.md,
+              fontFamily: fonts.mono,
+              fontSize: 14,
+              color: colors.text,
+            }}
+          />
+        ) : null}
 
         <SectionHeader overline="Your data" title="Export" />
         <AppText variant="small" color="textSecondary" style={{ marginBottom: space.md }}>

@@ -1,10 +1,10 @@
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import React from 'react';
-import { View } from 'react-native';
-import Animated, { FadeIn, LinearTransition } from 'react-native-reanimated';
+import { View, type LayoutChangeEvent } from 'react-native';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { radius, space, springs, useMotion, useTheme } from '@/theme';
+import { durations, radius, space, springs, useMotion, useTheme } from '@/theme';
 import { AppText, Icon, PressableScale, type IconName } from '@/components/ui';
 
 const TAB_ICONS: Record<string, IconName> = {
@@ -16,78 +16,129 @@ const TAB_ICONS: Record<string, IconName> = {
   stats: 'stats',
 };
 
+/** Height of the amber tick that marks the live section. */
+const TICK_HEIGHT = 2;
+
 /**
- * Custom section bar: icons for every section, and the active one expands
- * into a stamped pill with its label, settling on a spring.
+ * Section bar, built like a gauge scale: six evenly spaced tick marks with one
+ * amber needle sliding between them.
+ *
+ * Tabs are equal, fixed-width cells. The only thing that moves is the tick, on
+ * one spring driven by a single shared value: nothing in this bar animates a
+ * layout property, so the icons cannot shove each other around mid-transition.
  */
 export function CarTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const { colors } = useTheme();
   const { reduced } = useMotion();
   const insets = useSafeAreaInsets();
+  const [barWidth, setBarWidth] = React.useState(0);
+
+  const count = state.routes.length;
+  const cellWidth = barWidth > 0 ? barWidth / count : 0;
+  const tickX = useSharedValue(0);
+
+  React.useEffect(() => {
+    if (cellWidth === 0) return;
+    const target = state.index * cellWidth;
+    // First measure lands the tick without a slide; later switches spring.
+    if (tickX.value === 0 && state.index === 0) {
+      tickX.value = target;
+      return;
+    }
+    tickX.value = reduced
+      ? withTiming(target, { duration: durations.fadeFast })
+      : withSpring(target, springs.settle);
+  }, [state.index, cellWidth, reduced, tickX]);
+
+  const tickStyle = useAnimatedStyle(() => ({ transform: [{ translateX: tickX.value }] }));
+
+  const onLayout = (e: LayoutChangeEvent) => {
+    const width = Math.round(e.nativeEvent.layout.width);
+    setBarWidth((prev) => (prev === width ? prev : width));
+  };
 
   return (
     <View
       style={{
-        flexDirection: 'row',
-        alignItems: 'center',
         backgroundColor: colors.surface,
         borderTopWidth: 1,
         borderTopColor: colors.hairline,
         paddingBottom: Math.max(insets.bottom, space.sm),
-        paddingTop: space.sm,
-        paddingHorizontal: space.sm,
-        gap: space.xs,
       }}
     >
-      {state.routes.map((route, index) => {
-        const { options } = descriptors[route.key];
-        const label = options.title ?? route.name;
-        const active = state.index === index;
-        const icon = TAB_ICONS[route.name] ?? 'dot';
-
-        const onPress = () => {
-          const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
-          if (!active && !event.defaultPrevented) {
-            navigation.navigate(route.name, route.params);
-          }
-        };
-
-        return (
+      <View onLayout={onLayout} style={{ flexDirection: 'row' }}>
+        {cellWidth > 0 ? (
           <Animated.View
-            key={route.key}
-            layout={reduced ? undefined : LinearTransition.springify().damping(springs.settle.damping).stiffness(springs.settle.stiffness)}
-            style={{ flex: active ? 2.2 : 1 }}
+            pointerEvents="none"
+            style={[
+              {
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: cellWidth,
+                alignItems: 'center',
+              },
+              tickStyle,
+            ]}
           >
+            <View
+              style={{
+                width: space.xl2,
+                height: TICK_HEIGHT,
+                borderBottomLeftRadius: radius.pill,
+                borderBottomRightRadius: radius.pill,
+                backgroundColor: colors.accent,
+              }}
+            />
+          </Animated.View>
+        ) : null}
+
+        {state.routes.map((route, index) => {
+          const { options } = descriptors[route.key];
+          const label = options.title ?? route.name;
+          const active = state.index === index;
+          const icon = TAB_ICONS[route.name] ?? 'dot';
+
+          const onPress = () => {
+            const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
+            if (active || event.defaultPrevented) return;
+            // The [id] lives on the parent car route, so carry it across or the
+            // target section has no car to render.
+            navigation.navigate(route.name, { ...route.params, ...state.routes[state.index].params });
+          };
+
+          return (
             <PressableScale
+              key={route.key}
               accessibilityRole="tab"
               accessibilityLabel={label}
               accessibilityState={{ selected: active }}
               onPress={onPress}
+              pressedScale={0.92}
               style={{
-                minHeight: 44,
-                borderRadius: radius.sm,
-                borderWidth: 1,
-                borderColor: active ? colors.accentText : 'transparent',
-                backgroundColor: active ? colors.card : 'transparent',
+                width: cellWidth || undefined,
+                flex: cellWidth ? undefined : 1,
+                minHeight: 52,
+                paddingTop: space.md,
+                paddingBottom: space.xs,
                 alignItems: 'center',
                 justifyContent: 'center',
-                flexDirection: 'row',
                 gap: space.xs,
-                paddingHorizontal: space.xs,
               }}
             >
               <Icon name={icon} size={20} color={active ? colors.accentText : colors.textMuted} />
-              {active ? (
-                <Animated.View entering={reduced ? undefined : FadeIn.duration(150)}>
-                  <AppText variant="label" color="accentText" numberOfLines={1}>
-                    {label}
-                  </AppText>
-                </Animated.View>
-              ) : null}
+              <AppText
+                variant="label"
+                color={active ? 'accentText' : 'textMuted'}
+                numberOfLines={1}
+                style={{ fontSize: 9, letterSpacing: 0.3 }}
+              >
+                {label}
+              </AppText>
             </PressableScale>
-          </Animated.View>
-        );
-      })}
+          );
+        })}
+      </View>
     </View>
   );
 }

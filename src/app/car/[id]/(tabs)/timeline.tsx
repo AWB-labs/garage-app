@@ -1,6 +1,6 @@
 import { FlashList, type FlashListProps, type ListRenderItemInfo } from '@shopify/flash-list';
 import { format } from 'date-fns';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router } from 'expo-router';
 import React from 'react';
 import { Platform, RefreshControl, View } from 'react-native';
 import Animated, {
@@ -38,6 +38,7 @@ import {
   type Note,
   type ServiceRecord,
 } from '@/lib/types';
+import { useRouteVehicle } from '@/lib/useRouteVehicle';
 import { useGarageStore } from '@/stores/garage';
 import { useSettingsStore } from '@/stores/settings';
 import { useSheetsStore } from '@/stores/sheets';
@@ -300,8 +301,7 @@ const TimelineRow = React.memo(function TimelineRow({
 });
 
 export default function TimelineScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
-  const vehicle = useGarageStore((s) => s.vehicles.find((v) => v.id === id));
+  const { id, vehicle } = useRouteVehicle();
   const services = useGarageStore((s) => s.services);
   const issues = useGarageStore((s) => s.issues);
   const notes = useGarageStore((s) => s.notes);

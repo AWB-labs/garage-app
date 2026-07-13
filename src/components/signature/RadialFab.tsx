@@ -1,4 +1,3 @@
-import { Canvas, Group, Path, Skia } from '@shopify/react-native-skia';
 import React from 'react';
 import { BackHandler, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import Animated, {
@@ -6,7 +5,6 @@ import Animated, {
   interpolate,
   runOnJS,
   useAnimatedStyle,
-  useDerivedValue,
   useSharedValue,
   withSpring,
   withTiming,
@@ -22,34 +20,39 @@ export interface RadialFabProps {
 }
 
 /**
- * Signature moment 7: the radial FAB. A 56pt amber lamp that blooms four
- * quick actions along a tachometer arc up-left of it. The open layer lives
- * in the root portal so the fullscreen scrim and the out-of-bounds action
- * buttons receive touches on Android. One open-progress shared value drives
- * the scrim, the arc ticks, the FAB rotation, and the per-action staggered
- * bloom. Reduce motion: actions fade in place.
+ * Signature moment 7: the quick-action lamp. A 56pt amber FAB that blooms four
+ * actions upward on staggered springs, each flying out of the lamp and settling
+ * onto its own row.
+ *
+ * The actions sit on a fixed vertical grid rather than on a polar arc: an arc
+ * packs labelled rows close enough that a long label ("Update mileage") runs
+ * under its neighbour's button. One row per action makes overlap impossible at
+ * any label length or text size, and the rows still fan out of the lamp, so the
+ * bloom reads the same.
+ *
+ * The open layer lives in the root portal: Android clips touches to parent
+ * bounds, so buttons drawn outside the FAB's own box would be untappable
+ * anywhere else. Reduce motion: actions fade in place.
  */
 
 const FAB_SIZE = 56;
-const ACTION_SIZE = 56;
-/** Arc radius keeps at least 8pt of clearance between 56pt actions 30deg apart. */
-const ARC_RADIUS = 128;
-/** Canvas box around the FAB center that contains the arc and its ticks. */
-const ARC_BOX = ARC_RADIUS + space.xl2;
+const ACTION_SIZE = 48;
+/** One action per band. The band is the button plus the gap under it. */
+const ROW_GAP = space.md;
+const ROW_PITCH = ACTION_SIZE + ROW_GAP;
 
 interface QuickAction {
   icon: IconName;
   label: string;
-  /** Screen angle in degrees: 180 is left of the FAB, 270 is straight up. */
-  angleDeg: number;
   sheet: (vehicleId: string) => SheetRequest;
 }
 
+/** Nearest the lamp first: the actions rise in this order. */
 const ACTIONS: QuickAction[] = [
-  { icon: 'wrench', label: 'Log service', angleDeg: 180, sheet: (vehicleId) => ({ kind: 'logService', vehicleId }) },
-  { icon: 'odometer', label: 'Update mileage', angleDeg: 210, sheet: (vehicleId) => ({ kind: 'updateMileage', vehicleId }) },
-  { icon: 'alert', label: 'Report issue', angleDeg: 240, sheet: (vehicleId) => ({ kind: 'reportIssue', vehicleId }) },
-  { icon: 'note', label: 'Add note', angleDeg: 270, sheet: (vehicleId) => ({ kind: 'note', vehicleId }) },
+  { icon: 'wrench', label: 'Log service', sheet: (vehicleId) => ({ kind: 'logService', vehicleId }) },
+  { icon: 'odometer', label: 'Update mileage', sheet: (vehicleId) => ({ kind: 'updateMileage', vehicleId }) },
+  { icon: 'alert', label: 'Report issue', sheet: (vehicleId) => ({ kind: 'reportIssue', vehicleId }) },
+  { icon: 'note', label: 'Add note', sheet: (vehicleId) => ({ kind: 'note', vehicleId }) },
 ];
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -91,11 +94,10 @@ function FabCircle({ label, expanded, progress, onPress }: FabCircleProps) {
   );
 }
 
-interface ActionButtonProps {
+interface ActionRowProps {
   index: number;
   action: QuickAction;
-  centerX: number;
-  centerY: number;
+  /** Window coordinates of the lamp's own box. */
   fabX: number;
   fabY: number;
   windowWidth: number;
@@ -104,40 +106,35 @@ interface ActionButtonProps {
   onPress: () => void;
 }
 
-const ActionButton = React.memo(function ActionButton({
+const ActionRow = React.memo(function ActionRow({
   index,
   action,
-  centerX,
-  centerY,
   fabX,
   fabY,
   windowWidth,
   progress,
   reduced,
   onPress,
-}: ActionButtonProps) {
+}: ActionRowProps) {
   const { colors } = useTheme();
+  /** Distance this row travels up out of the lamp. */
+  const rise = (index + 1) * ROW_PITCH;
 
   const bloom = useAnimatedStyle(() => {
     if (reduced) {
-      return {
-        opacity: Math.max(0, Math.min(1, progress.value)),
-        transform: [{ translateX: 0 }, { translateY: 0 }, { scale: 1 }],
-      };
+      return { opacity: Math.max(0, Math.min(1, progress.value)), transform: [{ translateY: 0 }, { scale: 1 }] };
     }
-    // Staggered input ranges off one master progress; the right side extends
-    // so the master spring's overshoot blooms each action slightly past its
-    // resting spot, later ones a touch harder.
-    const s = interpolate(progress.value, [index * 0.12, 1], [0, 1], {
+    // Staggered slices of one master progress. The right edge extends so the
+    // master spring's overshoot carries each row slightly past its rest.
+    const s = interpolate(progress.value, [index * 0.1, 1], [0, 1], {
       extrapolateLeft: Extrapolation.CLAMP,
       extrapolateRight: Extrapolation.EXTEND,
     });
     return {
-      opacity: Math.max(0, Math.min(1, s * 1.5)),
+      opacity: Math.max(0, Math.min(s, 1)),
       transform: [
-        { translateX: (fabX - centerX) * (1 - s) },
-        { translateY: (fabY - centerY) * (1 - s) },
-        { scale: 0.4 + 0.6 * Math.max(0, Math.min(s, 1.08)) },
+        { translateY: interpolate(s, [0, 1], [rise, 0]) },
+        { scale: 0.6 + 0.4 * Math.max(0, Math.min(s, 1.06)) },
       ],
     };
   });
@@ -147,8 +144,10 @@ const ActionButton = React.memo(function ActionButton({
       style={[
         {
           position: 'absolute',
-          top: centerY - ACTION_SIZE / 2,
-          right: windowWidth - (centerX + ACTION_SIZE / 2),
+          // Right-aligned to the lamp, so every row shares one clean edge.
+          right: windowWidth - (fabX + FAB_SIZE),
+          top: fabY + (FAB_SIZE - ACTION_SIZE) / 2 - rise,
+          height: ACTION_SIZE,
           flexDirection: 'row',
           alignItems: 'center',
           gap: space.sm,
@@ -169,7 +168,7 @@ const ActionButton = React.memo(function ActionButton({
           paddingVertical: space.xs,
         }}
       >
-        <AppText variant="label" color="text">
+        <AppText variant="label" color="text" numberOfLines={1}>
           {action.label}
         </AppText>
       </View>
@@ -182,12 +181,12 @@ const ActionButton = React.memo(function ActionButton({
           borderRadius: radius.pill,
           backgroundColor: colors.card,
           borderWidth: 1,
-          borderColor: colors.hairline,
+          borderColor: colors.accentText,
           alignItems: 'center',
           justifyContent: 'center',
         }}
       >
-        <Icon name={action.icon} size={22} color={colors.accentText} />
+        <Icon name={action.icon} size={20} color={colors.accentText} />
       </PressableScale>
     </Animated.View>
   );
@@ -274,31 +273,9 @@ export function RadialFab({ vehicleId }: RadialFabProps) {
     return () => sub.remove();
   }, [mounted, closeBloom]);
 
-  // The faint tachometer arc with tick marks between the four actions.
-  const arcPaths = React.useMemo(() => {
-    const arc = Skia.Path.Make();
-    arc.addArc(
-      { x: ARC_BOX - ARC_RADIUS, y: ARC_BOX - ARC_RADIUS, width: ARC_RADIUS * 2, height: ARC_RADIUS * 2 },
-      180,
-      90
-    );
-    const ticks = Skia.Path.Make();
-    for (const deg of [195, 225, 255]) {
-      const a = (deg * Math.PI) / 180;
-      ticks.moveTo(ARC_BOX + Math.cos(a) * (ARC_RADIUS - space.xs), ARC_BOX + Math.sin(a) * (ARC_RADIUS - space.xs));
-      ticks.lineTo(ARC_BOX + Math.cos(a) * (ARC_RADIUS + space.xs), ARC_BOX + Math.sin(a) * (ARC_RADIUS + space.xs));
-    }
-    return { arc, ticks };
-  }, []);
-
   const scrimStyle = useAnimatedStyle(() => ({
     opacity: Math.max(0, Math.min(1, progress.value)),
   }));
-  const arcOpacity = useDerivedValue(() => Math.max(0, Math.min(1, progress.value)) * 0.8, [progress]);
-
-  const fabCenter = anchor
-    ? { x: anchor.x + FAB_SIZE / 2, y: anchor.y + FAB_SIZE / 2 }
-    : { x: 0, y: 0 };
 
   return (
     <>
@@ -324,10 +301,8 @@ export function RadialFab({ vehicleId }: RadialFabProps) {
             The open bloom is a modal, not just a dim: accessibilityViewIsModal
             takes the layer's siblings out of the iOS accessibility tree, and the
             scrim is a real dismiss target rather than a hidden decoration, so a
-            reader always has a way out of the layer. Touches are dropped for the
-            whole exit so a second tap cannot land on a fading control.
-          */}
-          {/*
+            reader always has a way out of the layer.
+
             box-only during the exit: the layer keeps swallowing touches, so a
             second tap can neither re-enter the close nor fall through to the
             dashboard underneath, but no fading control can fire either.
@@ -343,44 +318,22 @@ export function RadialFab({ vehicleId }: RadialFabProps) {
               onPress={() => closeBloom()}
               style={[StyleSheet.absoluteFill, { backgroundColor: colors.scrim }, scrimStyle]}
             />
-            <Canvas
-              pointerEvents="none"
-              style={{
-                position: 'absolute',
-                left: fabCenter.x - ARC_BOX,
-                top: fabCenter.y - ARC_BOX,
-                width: ARC_BOX * 2,
-                height: ARC_BOX * 2,
-              }}
-            >
-              <Group opacity={arcOpacity}>
-                <Path path={arcPaths.arc} style="stroke" strokeWidth={1} color={colors.hairline} />
-                <Path path={arcPaths.ticks} style="stroke" strokeWidth={1.5} color={colors.stroke} />
-              </Group>
-            </Canvas>
-            {ACTIONS.map((action, index) => {
-              const a = (action.angleDeg * Math.PI) / 180;
-              const centerX = fabCenter.x + Math.cos(a) * ARC_RADIUS;
-              const centerY = fabCenter.y + Math.sin(a) * ARC_RADIUS;
-              return (
-                <ActionButton
-                  key={action.label}
-                  index={index}
-                  action={action}
-                  centerX={centerX}
-                  centerY={centerY}
-                  fabX={fabCenter.x}
-                  fabY={fabCenter.y}
-                  windowWidth={windowWidth}
-                  progress={progress}
-                  reduced={reduced}
-                  onPress={() => {
-                    haptic.select();
-                    closeBloom(() => openSheet(action.sheet(vehicleId)));
-                  }}
-                />
-              );
-            })}
+            {ACTIONS.map((action, index) => (
+              <ActionRow
+                key={action.label}
+                index={index}
+                action={action}
+                fabX={anchor.x}
+                fabY={anchor.y}
+                windowWidth={windowWidth}
+                progress={progress}
+                reduced={reduced}
+                onPress={() => {
+                  haptic.select();
+                  closeBloom(() => openSheet(action.sheet(vehicleId)));
+                }}
+              />
+            ))}
             <View style={{ position: 'absolute', left: anchor.x, top: anchor.y }}>
               <FabCircle
                 label="Close quick actions"

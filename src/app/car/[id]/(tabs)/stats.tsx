@@ -1,5 +1,4 @@
 import { format } from 'date-fns';
-import { useLocalSearchParams } from 'expo-router';
 import React from 'react';
 import { ScrollView, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -17,6 +16,7 @@ import {
 import { formatMoney } from '@/lib/format';
 import { costByType, servicesPerYear, spendByMonth, totalSpent } from '@/lib/stats';
 import type { ServiceType } from '@/lib/types';
+import { useRouteVehicle } from '@/lib/useRouteVehicle';
 import { useGarageStore } from '@/stores/garage';
 import { useSettingsStore } from '@/stores/settings';
 import { useSheetsStore } from '@/stores/sheets';
@@ -37,8 +37,7 @@ const HERO_SIZE = 48;
 const HERO_LINE = 54;
 
 export default function StatsScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
-  const vehicle = useGarageStore((s) => s.vehicles.find((v) => v.id === id));
+  const { id, vehicle } = useRouteVehicle();
   const services = useGarageStore((s) => s.services);
   const currency = useSettingsStore((s) => s.currency);
   const openSheet = useSheetsStore((s) => s.open);
