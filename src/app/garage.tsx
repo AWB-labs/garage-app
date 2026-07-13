@@ -5,6 +5,7 @@ import { ScrollView, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
 import { CarSilhouette } from '@/components/signature/CarSilhouette';
+import { ExpandingHero, type ExpandingHeroRequest } from '@/components/signature/ExpandingHero';
 import {
   AppText,
   Button,
@@ -12,6 +13,7 @@ import {
   EmptyState,
   Icon,
   Pill,
+  Portal,
   PressableScale,
   Screen,
 } from '@/components/ui';
@@ -28,6 +30,7 @@ export default function GarageScreen() {
   const vehicles = useGarageStore((s) => s.vehicles);
   const activeVehicleId = useGarageStore((s) => s.activeVehicleId);
   const openSheet = useSheetsStore((s) => s.open);
+  const [expanding, setExpanding] = React.useState<ExpandingHeroRequest | null>(null);
 
   return (
     <Screen>
@@ -77,35 +80,69 @@ export default function GarageScreen() {
                       .stiffness(springs.settle.stiffness)
               }
             >
-              <GarageCard vehicle={vehicle} active={vehicle.id === activeVehicleId} />
+              <GarageCard
+                vehicle={vehicle}
+                active={vehicle.id === activeVehicleId}
+                onExpand={setExpanding}
+              />
             </Animated.View>
           ))}
           <Button label="Add car" icon="plus" variant="ghost" full onPress={() => openSheet({ kind: 'vehicle' })} />
         </ScrollView>
       )}
+      {expanding ? (
+        <Portal id="garage-expand">
+          <ExpandingHero request={expanding} onDone={() => setExpanding(null)} />
+        </Portal>
+      ) : null}
     </Screen>
   );
 }
 
-function GarageCard({ vehicle, active }: { vehicle: Vehicle; active: boolean }) {
+function GarageCard({
+  vehicle,
+  active,
+  onExpand,
+}: {
+  vehicle: Vehicle;
+  active: boolean;
+  onExpand: (request: ExpandingHeroRequest) => void;
+}) {
   const { colors } = useTheme();
+  const { reduced } = useMotion();
   const unit = useSettingsStore((s) => s.unit);
   const setActiveVehicle = useGarageStore((s) => s.setActiveVehicle);
   const openSheet = useSheetsStore((s) => s.open);
+  const heroRef = React.useRef<View>(null);
   const name = vehicle.nickname ?? `${vehicle.make} ${vehicle.model}`;
+
+  const open = () => {
+    setActiveVehicle(vehicle.id);
+    const push = () => router.push({ pathname: '/car/[id]', params: { id: vehicle.id } });
+    if (reduced || !heroRef.current) {
+      // Reduce motion: no clone, the route's plain fade carries the change.
+      push();
+      return;
+    }
+    heroRef.current.measureInWindow((x, y, width, height) => {
+      if (width > 0 && height > 0) onExpand({ vehicle, rect: { x, y, width, height } });
+      push();
+    });
+  };
 
   return (
     <Card
       accessibilityLabel={`${name}, ${vehicle.year} ${vehicle.make} ${vehicle.model}, ${formatMileage(vehicle.currentMileage, unit)}. Open dashboard. Long press to edit.`}
-      onPress={() => {
-        setActiveVehicle(vehicle.id);
-        router.push({ pathname: '/car/[id]', params: { id: vehicle.id } });
-      }}
+      onPress={open}
       onLongPress={() => openSheet({ kind: 'vehicle', vehicle })}
       padding={0}
       style={{ marginBottom: space.lg, overflow: 'hidden', borderColor: active ? colors.accentText : colors.hairline }}
     >
-      <View style={{ height: 150, backgroundColor: colors.inset, alignItems: 'center', justifyContent: 'center' }}>
+      <View
+        ref={heroRef}
+        collapsable={false}
+        style={{ height: 150, backgroundColor: colors.inset, alignItems: 'center', justifyContent: 'center' }}
+      >
         {vehicle.photoUri ? (
           <Image
             source={{ uri: vehicle.photoUri }}

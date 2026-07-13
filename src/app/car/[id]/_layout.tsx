@@ -18,6 +18,10 @@ export default function CarLayout() {
         contentStyle: { backgroundColor: colors.bg },
         animation: 'slide_from_right',
       }}
-    />
+    >
+      {/* Detail views pair a fade with the row's press-scale: no hard cuts. */}
+      <Stack.Screen name="service/[serviceId]" options={{ animation: 'fade' }} />
+      <Stack.Screen name="issue/[issueId]" options={{ animation: 'fade' }} />
+    </Stack>
   );
 }

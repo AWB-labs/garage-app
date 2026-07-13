@@ -77,6 +77,8 @@ export default function RootLayout() {
             }}
           >
             <Stack.Screen name="settings" options={{ animation: 'slide_from_bottom' }} />
+            {/* The garage-to-car transition fades under the ExpandingHero clone. */}
+            <Stack.Screen name="car/[id]" options={{ animation: 'fade' }} />
           </Stack>
           <SheetHost />
         </BottomSheetModalProvider>
