@@ -46,6 +46,7 @@ function Entrance({ index, children }: { index: number; children: React.ReactNod
               .springify()
               .damping(springs.settle.damping)
               .stiffness(springs.settle.stiffness)
+              .overshootClamping(1)
       }
     >
       {children}

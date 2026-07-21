@@ -33,18 +33,39 @@ export function serviceLabel(type: ServiceType, customLabel?: string | null): st
   return type === 'custom' && customLabel ? customLabel : SERVICE_TYPE_LABELS[type];
 }
 
+/**
+ * What this account may do with a car. Strictly speaking this describes the
+ * viewer's relationship to the car rather than the car itself, but there is
+ * exactly one viewer per device, so carrying it on the vehicle keeps every
+ * screen one property away from knowing whether to show its edit controls.
+ * Cars created before sync, and every car in a build with no backend, are
+ * 'owner'.
+ */
+export type VehicleRole = 'owner' | 'editor' | 'viewer';
+
+export const VEHICLE_ROLE_LABELS: Record<VehicleRole, string> = {
+  owner: 'Owner',
+  editor: 'Editor',
+  viewer: 'Viewer',
+};
+
+/** Editors and owners can log work. Viewers read. */
+export const canEditVehicle = (role: VehicleRole): boolean => role !== 'viewer';
+
 export interface Vehicle {
   id: string;
   make: string;
   model: string;
   year: number;
   nickname: string | null;
+  /** Local file path. Photos never leave the device that took them. */
   photoUri: string | null;
   plate: string | null;
   vin: string | null;
   /** Kilometers. */
   currentMileage: number;
   createdAt: string;
+  role: VehicleRole;
 }
 
 export interface ServiceRecord {

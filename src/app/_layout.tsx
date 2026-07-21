@@ -19,6 +19,8 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { SheetHost } from '@/components/sheets/SheetHost';
 import { PortalProvider } from '@/components/ui';
+import { startSync, stopSync } from '@/sync/engine';
+import { useAuthStore } from '@/stores/auth';
 import { useGarageStore } from '@/stores/garage';
 import { useSettingsStore } from '@/stores/settings';
 import { useTheme } from '@/theme';
@@ -37,6 +39,8 @@ export default function RootLayout() {
   });
   const settingsHydrated = useSettingsStore((s) => s.hydrated);
   const garageHydrated = useGarageStore((s) => s.hydrated);
+  const authStatus = useAuthStore((s) => s.status);
+  const userId = useAuthStore((s) => s.userId);
   const { colors, isDark } = useTheme();
 
   React.useEffect(() => {
@@ -48,13 +52,29 @@ export default function RootLayout() {
       .getState()
       .hydrate()
       .catch((error) => console.error('Garage hydration failed', error));
+    // Resolves to 'disabled' immediately when the build carries no Supabase
+    // credentials, which is what keeps the local-only app unchanged.
+    useAuthStore
+      .getState()
+      .initialize()
+      .catch((error) => console.error('Auth initialization failed', error));
   }, []);
+
+  // One sync engine, tied to whoever is signed in. Changing account tears the
+  // old one down first so its timers and listeners cannot outlive it.
+  React.useEffect(() => {
+    if (!userId) return;
+    void startSync(userId).catch((error) => console.error('Sync failed to start', error));
+    return () => stopSync();
+  }, [userId]);
 
   React.useEffect(() => {
     SystemUI.setBackgroundColorAsync(colors.bg).catch(() => {});
   }, [colors.bg]);
 
-  const ready = fontsLoaded && settingsHydrated && garageHydrated;
+  const ready = fontsLoaded && settingsHydrated && garageHydrated && authStatus !== 'loading';
+  // 'disabled' means no backend in this build, so there is nobody to sign in.
+  const signedIn = authStatus !== 'signedOut';
 
   React.useEffect(() => {
     if (ready) SplashScreen.hideAsync().catch(() => {});
@@ -76,9 +96,19 @@ export default function RootLayout() {
               animation: 'slide_from_right',
             }}
           >
-            <Stack.Screen name="settings" options={{ animation: 'slide_from_bottom' }} />
-            {/* The garage-to-car transition fades under the ExpandingHero clone. */}
-            <Stack.Screen name="car/[id]" options={{ animation: 'fade' }} />
+            {/* Protected takes the routes out of the tree entirely rather than
+                redirecting after the fact, so there is no frame where a signed
+                out person sees somebody's garage. */}
+            <Stack.Protected guard={signedIn}>
+              <Stack.Screen name="index" />
+              <Stack.Screen name="garage" />
+              <Stack.Screen name="settings" options={{ animation: 'slide_from_bottom' }} />
+              {/* The garage-to-car transition fades under the ExpandingHero clone. */}
+              <Stack.Screen name="car/[id]" options={{ animation: 'fade' }} />
+            </Stack.Protected>
+            <Stack.Protected guard={!signedIn}>
+              <Stack.Screen name="sign-in" options={{ animation: 'fade' }} />
+            </Stack.Protected>
           </Stack>
           <SheetHost />
         </BottomSheetModalProvider>

@@ -208,7 +208,8 @@ export default function IssuesScreen() {
           : FadeInDown.delay(motion.stagger(Math.min(index + 1, 9)))
               .springify()
               .damping(springs.settle.damping)
-              .stiffness(springs.settle.stiffness);
+              .stiffness(springs.settle.stiffness)
+              .overshootClamping(1);
       return (
         <Animated.View entering={entering}>
           {item.kind === 'fixedHeader' ? <FixedSubheader /> : <IssueCard issue={item.issue} onPress={openDetail} />}
@@ -239,6 +240,7 @@ export default function IssuesScreen() {
                 : FadeInDown.springify()
                     .damping(springs.settle.damping)
                     .stiffness(springs.settle.stiffness)
+                    .overshootClamping(1)
             }
             style={{ marginBottom: space.md }}
           >

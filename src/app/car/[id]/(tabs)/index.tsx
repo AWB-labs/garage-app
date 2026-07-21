@@ -114,10 +114,14 @@ export default function DashboardScreen() {
       : FadeInDown.springify()
           .damping(springs.settle.damping)
           .stiffness(springs.settle.stiffness)
+          .overshootClamping(1)
           .delay(stagger(index));
   const shift = reduced
     ? undefined
-    : LinearTransition.springify().damping(springs.settle.damping).stiffness(springs.settle.stiffness);
+    : LinearTransition.springify()
+        .damping(springs.settle.damping)
+        .stiffness(springs.settle.stiffness)
+        .overshootClamping(1);
 
   const onClusterLayout = (e: LayoutChangeEvent) => {
     const w = Math.round(e.nativeEvent.layout.width);

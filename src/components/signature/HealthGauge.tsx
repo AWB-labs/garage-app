@@ -116,6 +116,7 @@ export function HealthGauge({ score, deductions, width }: HealthGaugeProps) {
       : FadeInDown.springify()
           .damping(springs.settle.damping)
           .stiffness(springs.settle.stiffness)
+          .overshootClamping(1)
           .delay(stagger(index));
 
   const displayScore = Math.round(score);

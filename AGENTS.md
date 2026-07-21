@@ -2,9 +2,10 @@
 
 A local-first car maintenance app. Read this before touching anything: most of it is knowledge that cost real debugging, and several items are traps you will fall into again if you do the obvious thing.
 
-Two other docs matter:
+Three other docs matter:
 - **DESIGN.md** is the design contract (tokens, motion policy with the reduce-motion fallback table, icon grammar, vocabulary, and the locked implementation of each signature moment). It is the source of truth. If you change a signature moment, update it there too.
 - **README.md** is the user-facing setup and architecture map.
+- **SUPABASE.md** is the backend: how to apply the migrations, the access model, and the schema rules that are load bearing.
 
 ## Verify like this
 
@@ -13,6 +14,14 @@ npx tsc --noEmit                     # strict, must be zero
 npx expo export --platform ios       # proves the whole Metro graph, catches what tsc cannot
 npx expo-doctor                      # 18/18
 ```
+
+If you touched `supabase/migrations/` or `src/sync/`, also run the backend suite. It creates throwaway accounts, exercises every policy and both roles against the real database, and deletes them again:
+
+```bash
+SUPABASE_URL=... SUPABASE_ANON_KEY=... SUPABASE_SERVICE_ROLE_KEY=... npm run verify:backend
+```
+
+48 checks, all must pass. It caught two bugs that `tsc` and a bundle export both waved through, and the regression guards for those are still in it. Never put the service role key in `.env`: the `EXPO_PUBLIC_` prefix is what inlines a value into the bundle, and that key bypasses every policy in the repo.
 
 A bundle export proves the graph resolves. It does **not** exercise native modules, gestures, or animation, so anything you change in those areas is unverified until it runs on a device. Say so plainly rather than claiming it works.
 
@@ -29,16 +38,34 @@ A bundle export proves the graph resolves. It does **not** exercise native modul
 
 SQLite is the source of truth. Zustand hydrates **once** behind the splash (`_layout.tsx` holds the native splash until fonts and data are ready), then every mutation writes through the DAO and mirrors in memory. **Components never touch the database**, and never query in `renderItem`.
 
+Supabase sits *behind* that, never in front of it. Screens never await the network: they read SQLite, and the sync engine reconciles in the background. Adding a `supabase.from(...)` call to a screen is the one change that would undo the whole design.
+
 ```
 src/theme/       tokens, motion policy, haptics. NOTHING outside this folder hardcodes a color, size, radius, spring, or duration.
-src/db/          schema (WAL, user_version migrations), DAOs, seed
-src/stores/      garage (all entities + mutations), settings, sheets (open a sheet by kind)
-src/lib/         derived logic: reminder urgency, health score, timeline merge, stats, formatting, car imagery
+src/db/          schema (WAL, user_version migrations), DAOs, seed, outbox
+src/stores/      garage (all entities + mutations), settings, auth, sheets (open a sheet by kind)
+src/sync/        engine (push/pull/reconcile), mapping (camelCase <-> snake_case), sharing, nudge
+src/lib/         derived logic: reminder urgency, health score, timeline merge, stats, formatting, car imagery, supabase client
 src/components/ui/         primitives, incl. the bespoke Icon set (no icon libraries, ever)
 src/components/signature/  the hero moments
 src/components/sheets/     gesture sheets + SheetHost
 src/app/                   expo-router routes
+supabase/migrations/       Postgres schema and RLS. See SUPABASE.md.
 ```
+
+## The backend is optional, and that is a feature
+
+With no `EXPO_PUBLIC_SUPABASE_*` in the environment, `isSupabaseConfigured` is false and Garage is exactly the app it always was: local only, no sign in screen, no sync, demo car seeded. Every backend entry point checks this. When you add a feature that touches the network, check it too, and make the offline path the one that works.
+
+## Sync
+
+One cycle, in `src/sync/engine.ts`: claim invitations, pull membership, reconcile, push the outbox, pull each table, reload the stores from SQLite.
+
+- **Conflict resolution is "a pending local write wins".** Push runs before pull, and a row still in the outbox when the pull lands is skipped. Between devices, later write wins.
+- **The outbox holds one entry per row, not a log.** Repeated edits collapse onto the queued entry and keep its sequence number. Push order is table first, sequence second, so a car always reaches the server before the services pointing at it.
+- **Applying a pulled row goes through the same DAO functions a user edit does**, so it is wrapped in `withRemoteApply` to suppress queueing. Without that, every pull immediately re-queues everything it just received.
+- **The pull cursor re-reads a minute of history.** `updated_at` is stamped at statement time and rows become visible at commit time, so a strict cursor can step over a slow transaction forever. Applying is idempotent, so the overlap is free.
+- **`synced_vehicles` is how a revoked share is told apart from an offline creation.** A car in that table that the membership pull no longer returns has been taken away and leaves the phone. A car that was never in it has simply not been pushed yet.
 
 ## Traps (each one already bit us)
 
@@ -65,6 +92,22 @@ src/app/                   expo-router routes
 
 **Sheets.** `GarageSheet` passes `animationConfigs` + `overrideReduceMotion`. Without them, bottom-sheet leaves `reduceMotion` unset and Reanimated **snaps** the sheet instantly under the OS reduce-motion flag instead of doing the short translate the motion policy specifies.
 
+**Row ids are TEXT, everywhere, including Postgres.** `newId()` returns `"mfd3k2-a8f2x9q1"`, not a uuid, and offline-first means a row has its final id before it has ever seen a server. Migrating the primary keys to `uuid` would orphan every row already on a phone.
+
+**Photos never sync.** They are local file paths, and the Postgres schema has no column for them at all. `upsertVehicleFromRemote` and friends deliberately preserve `photoUri` / `photoUris` on conflict rather than taking the pulled value: a pulled row that wrote its missing photo list over the local one would silently wipe every receipt image on the device.
+
+**Deleting is a tombstone, not a DELETE.** A hard delete cannot propagate. `deleted_at` is what other devices see. The one exception is local SQLite, which does hard delete and cascades children; that is fine because the vehicle tombstone makes every device cascade its own children the same way, which is also why deleted children get no outbox entries of their own.
+
+**RLS helper functions must stay `SECURITY DEFINER` and must keep returning `SETOF`.** The first stops the recursion you get from a `vehicle_members` policy that reads `vehicle_members`. The second lets policies read `x in (select app.f())`, which Postgres evaluates once per query instead of once per row. Do not add `FORCE ROW LEVEL SECURITY`: the triggers depend on definer functions bypassing RLS as the table owner.
+
+**A trigger that touches a second table must be SECURITY DEFINER if a cascade can reach it.** Referential actions run as the table owner, but the ordinary triggers they fire run as whoever is holding the knife, and for account deletion that is `supabase_auth_admin`, which has no rights on our tables. This made accounts that owned a car impossible to delete. Full story in SUPABASE.md.
+
+**`INSERT ... RETURNING` makes Postgres check the SELECT policy too.** Adding `.select()` to a `supabase-js` insert changes what RLS has to allow, which is how car creation broke once already. If you add `.select()` to a write, check the read policy covers the new row at that instant, not a moment later once triggers have run.
+
+**Sharing is the one online-only surface.** Membership is a claim about somebody else's account, so queueing "add this stranger" for later would show access that may never be granted. `src/sync/sharing.ts` talks to Postgres directly and says so when it cannot reach it. Do not route it through the outbox.
+
+**The demo seed does not run when a backend is configured.** A seeded BMW that syncs to every device the person owns reads as a real car. Someone upgrading from the local-only build gets the seed dropped on first sign in, which is what `meta:seedVehicleId` exists for.
+
 ## Car imagery
 
 `src/lib/carImage.ts`. imagin.studio renders a car from make/model/year. Three modes in Settings, held in one `carImageKey` setting: `''` (drawn silhouette, fully offline), `'img'` (their **public demo key**: real renders, but **watermarked**), or the user's own key (clean). Calling the CDN with **no** key returns a car under a dust cover, which is why demo mode exists. `resolveCarImage()` is what the hero and garage cards call.
@@ -76,6 +119,11 @@ This code was reviewed by an adversarial multi-agent pass: 29 findings, each ind
 Copy rules: plain, active voice, exact vocabulary from DESIGN.md section 8 (Service not Maintenance; Upcoming / Due soon / Overdue; Low / Medium / Critical; Open / Monitoring / Fixed). **No em dashes or en dashes anywhere**, including code comments: use commas, colons, periods, middots.
 
 ## Known open risks (unverified on device)
+
+- **The sync engine has never run.** The schema and every query it makes are tested against the live database (see SUPABASE.md), but no cycle has executed end to end: not the outbox, not the cursor bookkeeping, not the reconcile pass, not the first sign in adoption. That needs a phone.
+- **The route gate uses `Stack.Protected`.** It is the first-class API in expo-router 6 and reads correctly, but navigation is exactly what a bundle export does not exercise. The failure mode if it is wrong is loud (a blank screen or an immediate error), not subtle.
+- **Local migration 2 adds a column with `ALTER TABLE`.** `vehicles.role` lands on existing installs through the `user_version` gate. Verified by reading, not by upgrading a real database that already had rows.
+- **Sign out clears the garage from the phone** after a best effort push. If that push fails while offline, unsynced changes are gone. The confirmation says so and shows the count, but the tradeoff is deliberate: leaving the cars behind means the next person to open the app sees somebody else's garage.
 
 - **iOS pull-to-refresh**: the native `RefreshControl` threshold may not exactly match the 88pt sweep the Skia needle is mapped to, so a refresh can start with the needle slightly short of full sweep. Wants calibration on a real phone.
 - **Severity dial**: it takes the sheet's content-panning gesture via a `waitFor` relation. It typechecks and is grounded in gorhom's source, but the feel has not been driven by a finger.

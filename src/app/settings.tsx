@@ -1,10 +1,14 @@
+import { formatDistanceToNowStrict } from 'date-fns';
 import { router } from 'expo-router';
 import React from 'react';
-import { ScrollView, TextInput, View } from 'react-native';
+import { Alert, ScrollView, TextInput, View } from 'react-native';
 
 import { AppText, Button, Icon, PressableScale, Screen, SectionHeader, SegmentedControl } from '@/components/ui';
 import { DEMO_CAR_IMAGE_KEY } from '@/lib/carImage';
 import { exportGarage } from '@/lib/export';
+import { isSupabaseConfigured } from '@/lib/supabase';
+import { signOutAndClearLocal, syncNow, useSyncStore } from '@/sync/engine';
+import { useAuthStore } from '@/stores/auth';
 import { useGarageStore } from '@/stores/garage';
 import { useSettingsStore } from '@/stores/settings';
 import { fonts, radius, space, useTheme } from '@/theme';
@@ -137,16 +141,101 @@ export default function SettingsScreen() {
           />
         ) : null}
 
+        {isSupabaseConfigured ? <AccountSection /> : null}
+
         <SectionHeader overline="Your data" title="Export" />
         <AppText variant="small" color="textSecondary" style={{ marginBottom: space.md }}>
-          Everything lives on this phone. Export the full garage as JSON any time.
+          {isSupabaseConfigured
+            ? 'The garage lives on this phone and in your account. Export the whole thing as JSON any time.'
+            : 'Everything lives on this phone. Export the full garage as JSON any time.'}
         </AppText>
         <Button label="Export data as JSON" icon="share" variant="ghost" onPress={exportData} loading={exporting} full />
 
         <AppText variant="caption" color="textMuted" center style={{ marginTop: space.xl3 }}>
-          Garage 1.0.0 · local-first, no accounts, no cloud
+          {isSupabaseConfigured
+            ? 'Garage 1.0.0 · works offline, syncs when it can'
+            : 'Garage 1.0.0 · local-first, no accounts, no cloud'}
         </AppText>
       </ScrollView>
     </Screen>
+  );
+}
+
+/**
+ * Only rendered when the build carries Supabase credentials. Shows the account,
+ * whether anything is still waiting to upload, and the way out.
+ */
+function AccountSection() {
+  const { colors } = useTheme();
+  const email = useAuthStore((s) => s.email);
+  const { phase, pending, lastSyncedAt, error } = useSyncStore();
+  const [leaving, setLeaving] = React.useState(false);
+
+  const status =
+    phase === 'syncing'
+      ? 'Syncing now'
+      : pending > 0
+        ? `${pending} ${pending === 1 ? 'change' : 'changes'} waiting to upload`
+        : lastSyncedAt
+          ? `Synced ${formatDistanceToNowStrict(new Date(lastSyncedAt), { addSuffix: true })}`
+          : 'Not synced yet';
+
+  const confirmSignOut = () => {
+    const warning =
+      pending > 0
+        ? `${pending} ${pending === 1 ? 'change has' : 'changes have'} not reached the server yet. Garage will try to upload them first, and they are lost if it cannot.`
+        : 'Your cars stay in your account. They come back the next time you sign in.';
+
+    Alert.alert('Sign out?', `${warning} This phone is left with an empty garage.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Sign out',
+        style: 'destructive',
+        onPress: () => {
+          setLeaving(true);
+          // Best effort push before the local copy goes. A failure here is not
+          // a reason to trap somebody in an account they want to leave.
+          syncNow()
+            .catch(() => {})
+            .then(() => useAuthStore.getState().signOut())
+            .then(() => signOutAndClearLocal())
+            .catch(() => {})
+            .finally(() => setLeaving(false));
+        },
+      },
+    ]);
+  };
+
+  return (
+    <>
+      <SectionHeader overline="Account" title="Sync" />
+      <View style={{ gap: space.xs, marginBottom: space.md }}>
+        <AppText variant="body" numberOfLines={1}>
+          {email ?? 'Signed in'}
+        </AppText>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+          <Icon
+            name={error ? 'alert' : phase === 'syncing' ? 'clock' : 'check'}
+            size={14}
+            color={error ? colors.dangerText : colors.textMuted}
+            strokeWidth={1.8}
+          />
+          <AppText variant="caption" color={error ? 'dangerText' : 'textMuted'} style={{ flex: 1 }}>
+            {error ?? status}
+          </AppText>
+        </View>
+      </View>
+      <View style={{ gap: space.md }}>
+        <Button
+          label="Sync now"
+          icon="clock"
+          variant="ghost"
+          onPress={() => void syncNow()}
+          loading={phase === 'syncing'}
+          full
+        />
+        <Button label="Sign out" variant="danger" onPress={confirmSignOut} loading={leaving} full />
+      </View>
+    </>
   );
 }

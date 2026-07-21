@@ -79,6 +79,7 @@ export default function GarageScreen() {
                       .springify()
                       .damping(springs.settle.damping)
                       .stiffness(springs.settle.stiffness)
+                      .overshootClamping(1)
               }
             >
               <GarageCard

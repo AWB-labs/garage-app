@@ -61,7 +61,8 @@ export default function ServiceDetailScreen() {
           .springify()
           .damping(springs.settle.damping)
           .stiffness(springs.settle.stiffness)
-          .mass(springs.settle.mass);
+          .mass(springs.settle.mass)
+          .overshootClamping(1);
 
   const specRows: { label: string; value: string }[] = [
     { label: 'Date', value: format(new Date(service.date), 'd MMM yyyy') },

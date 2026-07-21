@@ -128,16 +128,34 @@ interface RowShellProps {
  * kind, so the screen gates `entering` behind a one-shot mount window.
  */
 function RowShell({ node, accessibilityLabel, onPress, children }: RowShellProps) {
+  const { colors } = useTheme();
+  /**
+   * The divider sits on the content column, not the row, so the hairlines
+   * never cut across the Skia rail running down the gutter.
+   */
   const inner = (
     <>
       <View style={{ width: RAIL_GUTTER, alignItems: 'center', paddingTop: space.xs2 }}>{node}</View>
-      <View style={{ flex: 1, gap: space.xs }}>{children}</View>
+      <View
+        style={{
+          flex: 1,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: space.md,
+          paddingBottom: space.lg,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.hairline,
+        }}
+      >
+        <View style={{ flex: 1, gap: space.xs }}>{children}</View>
+        {onPress ? <Icon name="chevronRight" size={16} color={colors.textMuted} strokeWidth={1.8} /> : null}
+      </View>
     </>
   );
   const rowStyle = {
     flexDirection: 'row',
     gap: space.md,
-    paddingVertical: space.md,
+    paddingTop: space.lg,
     minHeight: hitTarget,
   } as const;
   return onPress ? (
@@ -407,7 +425,8 @@ export default function TimelineScreen() {
               .springify()
               .damping(springs.settle.damping)
               .stiffness(springs.settle.stiffness)
-              .mass(springs.settle.mass);
+              .mass(springs.settle.mass)
+              .overshootClamping(1);
       return (
         <Animated.View entering={entering}>
           <TimelineRow event={item} vehicleId={id} />
@@ -425,7 +444,8 @@ export default function TimelineScreen() {
         .springify()
         .damping(springs.settle.damping)
         .stiffness(springs.settle.stiffness)
-        .mass(springs.settle.mass);
+        .mass(springs.settle.mass)
+        .overshootClamping(1);
 
   const railTop = headerHeight + space.md;
   const showRail = events.length > 0 && viewport.height > 0 && railPathEnd > railTop;

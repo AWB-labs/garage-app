@@ -87,6 +87,40 @@ const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_notes_vehicle ON notes(vehicleId);
   CREATE INDEX IF NOT EXISTS idx_mileage_vehicle ON mileage_logs(vehicleId);
   `,
+  // Sync. Everything here is local bookkeeping and never leaves the phone.
+  `
+  -- One pending entry per row, not a log of every edit: the unique index below
+  -- collapses repeated edits onto the entry that is already queued, which
+  -- keeps the queue small and holds each row at its original position. The
+  -- engine pushes by table first and sequence second, so a car always reaches
+  -- the server before the service records that reference it. Replacing the
+  -- upsert with delete-then-insert would break the ordering half of that.
+  CREATE TABLE IF NOT EXISTS sync_outbox (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    tableName TEXT NOT NULL,
+    rowId TEXT NOT NULL,
+    op TEXT NOT NULL,
+    queuedAt TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_row ON sync_outbox(tableName, rowId);
+
+  -- Pull cursors and the id of the account the local data belongs to.
+  CREATE TABLE IF NOT EXISTS sync_state (
+    key TEXT PRIMARY KEY NOT NULL,
+    value TEXT NOT NULL
+  );
+
+  -- Cars known to exist on the server. A car that is in here but no longer
+  -- comes back from the membership pull is one this account lost access to,
+  -- so it is removed locally. Without this table there is no way to tell that
+  -- case apart from a car created offline that has never been pushed.
+  CREATE TABLE IF NOT EXISTS synced_vehicles (
+    vehicleId TEXT PRIMARY KEY NOT NULL
+  );
+
+  -- My access level for this car. Cars that predate sync are mine.
+  ALTER TABLE vehicles ADD COLUMN role TEXT NOT NULL DEFAULT 'owner';
+  `,
 ];
 
 async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {

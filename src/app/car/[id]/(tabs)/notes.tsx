@@ -206,7 +206,8 @@ export default function NotesScreen() {
           : FadeInDown.delay(stagger(Math.min(index + 2, ENTRANCE_CAP)))
               .springify()
               .damping(springs.settle.damping)
-              .stiffness(springs.settle.stiffness);
+              .stiffness(springs.settle.stiffness)
+              .overshootClamping(1);
       return (
         <NoteRow
           note={item.note}
@@ -229,7 +230,8 @@ export default function NotesScreen() {
       : FadeInDown.delay(stagger(index))
           .springify()
           .damping(springs.settle.damping)
-          .stiffness(springs.settle.stiffness);
+          .stiffness(springs.settle.stiffness)
+          .overshootClamping(1);
 
   return (
     <Screen padded={false}>

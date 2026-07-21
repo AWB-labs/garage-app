@@ -529,7 +529,8 @@ export default function MaintenanceScreen() {
           .springify()
           .damping(springs.settle.damping)
           .stiffness(springs.settle.stiffness)
-          .mass(springs.settle.mass);
+          .mass(springs.settle.mass)
+          .overshootClamping(1);
 
   const rows = React.useMemo<Row[]>(() => {
     if (!vehicle) return [];

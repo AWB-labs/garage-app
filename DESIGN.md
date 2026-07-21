@@ -102,7 +102,7 @@ All icons are authored in-house in `src/components/ui/Icon.tsx` via react-native
 
 1. **Odometer roll**: per-digit 0-9 strips, Reanimated springs on translateY with slight overshoot. ONE haptic on settle (at most 3 rhythmic ticks 60ms apart), routed through a single `runOnJS`. One shared glow canvas behind the whole digit row (pre-blurred radial), never per-digit blurs.
 2. **Health gauge** (not an Apple ring): 240° sweep opening at the bottom, 40 minor + 8 major hairline ticks, permanent redline sector on the last 15%, thin Skia needle that overshoots and settles on a spring, score numeral in display face beneath the pivot. Color-lerp only the needle + active sweep (phosphor → amber → redline); ticks stay neutral.
-3. **Living timeline**: ONE absolutely positioned Skia canvas renders the rail behind the FlashList, driven by a scroll shared value passed directly as a Skia prop. The rail is odometer tape: minor mileage ticks, occasional printed km values in mono caption. Entries settle with staggered springs; node glyphs are memoized SVG, never per-cell canvases. `getItemType` per event type.
+3. **Living timeline**: ONE absolutely positioned Skia canvas renders the rail behind the FlashList, driven by a scroll shared value passed directly as a Skia prop. The rail is odometer tape: minor mileage ticks, occasional printed km values in mono caption. Entries settle with staggered springs; node glyphs are memoized SVG, never per-cell canvases. `getItemType` per event type. Each entry closes with a hairline divider on the content column only, so the rule never cuts across the rail, and entries that open a detail carry a right chevron. Mileage updates are not tappable and carry none.
 4. **Expanding card**: detail screens are REAL expo-router routes. On press: `measureInWindow` the card, mount a clone in the root portal host, `router.push` with `animation: 'none'`, crossfade the clone out when the detail lays out. BackHandler collapses the clone then `router.back()`. One transition-progress shared value makes it interruptible. Reduce motion: skip the clone, plain fade.
 5. **Sheets**: `@gorhom/bottom-sheet` v5, one `BottomSheetModalProvider` at root, `BottomSheetTextInput` for every input, `keyboardBehavior: 'extend'`, `keyboardBlurBehavior: 'restore'`, `android_keyboardInputMode: 'adjustResize'`, fixed snap points on keyboarded sheets, hardware back dismisses top sheet first.
 6. **Severity gauge**: whole dial face is the pan surface + three ≥44pt tappable detent zones. Detent index latched in a shared value; haptic fires only on detent change. Needle springs to nearest detent on release. Exposed as an adjustable accessibility element (increment/decrement = detents). Gauge blocks the sheet's content-panning gesture.
@@ -126,7 +126,7 @@ All icons are authored in-house in `src/components/ui/Icon.tsx` via react-native
   - Pull-to-refresh: plain tinted RefreshControl on both platforms
   - Expanding card: plain fade push
   - Reward: static phosphor highlight + success haptic
-- Screen entrances are choreographed: staggered 40 to 60ms per element group, springs, once per mount.
+- Screen entrances are choreographed: staggered 40 to 60ms per element group, springs, once per mount. Entrance and layout springs are **overshoot-clamped**: content arrives and stops, it never bounces past its resting place. Overshoot is reserved for the deliberate moments (odometer, gauge needle, FAB bloom).
 - Loading = skeletons matching final layout. Empty states are designed, with a Skia/SVG drawing and one clear action.
 
 ## 8. Vocabulary (use these exact words everywhere)
@@ -138,6 +138,8 @@ All icons are authored in-house in `src/components/ui/Icon.tsx` via react-native
 - Errors say what happened and how to fix it: "Couldn't save. Add a title first."
 - Numerals: mileage always grouped ("48,250 km"), money in the chosen currency ("EGP 1,450").
 - Punctuation: no em or en dashes anywhere (UI copy, docs, code comments). Use commas, colons, periods, middots.
+- Sharing roles: exactly `Owner`, `Editor`, `Viewer`. The section is **Sharing**, never "permissions" or "collaborators". People are added to a car, not "invited to a workspace".
+- Sync never brags and never blames. State the fact: "Synced 4 minutes ago", "2 changes waiting to upload", "Cannot reach the server. Check your connection." Never "Syncing your data to the cloud!" and never a spinner with no words.
 
 ## 9. Architecture map
 
@@ -147,8 +149,10 @@ src/
     _layout.tsx           fonts, theme, providers, portal host, sheet host
     index.tsx             redirect: garage or active car dashboard
     garage.tsx            car switcher (hero cards)
-    settings.tsx          theme, units, currency, export
+    settings.tsx          theme, units, currency, export, account and sync
+    sign-in.tsx           email and password, only when a backend is configured
     car/[id]/_layout.tsx  custom section tab bar
+    car/[id]/members.tsx  sharing: people, roles, pending invitations
     car/[id]/index.tsx    dashboard
     car/[id]/timeline.tsx
     car/[id]/maintenance.tsx
@@ -158,6 +162,7 @@ src/
   theme/                  tokens, ThemeProvider, motion, haptics
   db/                     sqlite (async API, WAL, user_version migrations), DAOs, seed
   stores/                 zustand: hydrate once at startup, write-through mutations
+  sync/                   optional Supabase layer: outbox push, pull, reconcile, sharing
   components/ui/          AppText, Screen, Card, Button, Pill, Icon, Skeleton, EmptyState, SectionHeader, GrainOverlay
   components/signature/   Odometer, HealthGauge, TimelineRail, SeverityDial, RadialFab, RefreshGauge, ExpandingCard
   components/sheets/      one sheet per entity, sheet-manager store
@@ -165,3 +170,5 @@ src/
 ```
 
 Data flow: SQLite is the source of truth → zustand hydrates once behind the splash → mutations write through DAOs then update the store in memory. No queries in components or `renderItem`.
+
+Sync, when configured, is strictly behind that line: it writes to SQLite and asks the stores to re-read. **No screen ever awaits the network.** There are no loading spinners on data, because there is nothing to wait for. The one exception is Sharing, which is a claim about another person's account and cannot be resolved offline; it says so plainly instead of pretending.

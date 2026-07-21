@@ -28,6 +28,7 @@ export async function seedIfEmpty(): Promise<void> {
     vin: null,
     currentMileage: 62400,
     createdAt: iso(560),
+    role: 'owner',
   };
   await dao.insertVehicle(car);
 
@@ -233,4 +234,7 @@ export async function seedIfEmpty(): Promise<void> {
 
   await dao.setMeta('seeded', 'true');
   await dao.setMeta('activeVehicleId', car.id);
+  // Remembered so that signing in can tell the demo car apart from a real one
+  // and drop it, rather than uploading a fake BMW into somebody's account.
+  await dao.setMeta('seedVehicleId', car.id);
 }

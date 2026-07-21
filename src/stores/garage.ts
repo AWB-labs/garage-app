@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import * as dao from '@/db/dao';
 import { seedIfEmpty } from '@/db/seed';
 import { newId } from '@/lib/id';
+import { isSupabaseConfigured } from '@/lib/supabase';
 import type {
   Issue,
   IssueSeverity,
@@ -68,6 +69,8 @@ interface GarageState {
   mileageLogs: MileageLog[];
 
   hydrate: () => Promise<void>;
+  /** Re-reads SQLite after sync changed it. Never seeds, never re-picks a car. */
+  reloadFromDb: () => Promise<void>;
 
   addVehicle: (input: VehicleInput) => Promise<Vehicle>;
   updateVehicle: (vehicle: Vehicle) => Promise<void>;
@@ -148,7 +151,10 @@ export const useGarageStore = create<GarageState>((set, get) => {
     mileageLogs: [],
 
     hydrate: async () => {
-      await seedIfEmpty();
+      // The demo car is scenery for the local-only build. Once there is a
+      // backend an account starts empty, because a seeded BMW would sync to
+      // every device the person owns and read as a real car.
+      if (!isSupabaseConfigured) await seedIfEmpty();
       const [vehicles, services, reminders, issues, notes, mileageLogs, storedActive] =
         await Promise.all([
           dao.listVehicles(),
@@ -166,8 +172,36 @@ export const useGarageStore = create<GarageState>((set, get) => {
       set({ hydrated: true, vehicles, services, reminders, issues, notes, mileageLogs, activeVehicleId });
     },
 
+    reloadFromDb: async () => {
+      const [vehicles, services, reminders, issues, notes, mileageLogs] = await Promise.all([
+        dao.listVehicles(),
+        dao.listServices(),
+        dao.listReminders(),
+        dao.listIssues(),
+        dao.listNotes(),
+        dao.listMileageLogs(),
+      ]);
+      set((s) => {
+        // Sync can take the active car away, either because it was deleted on
+        // another device or because this account was removed from it.
+        const active =
+          s.activeVehicleId && vehicles.some((v) => v.id === s.activeVehicleId)
+            ? s.activeVehicleId
+            : (vehicles[0]?.id ?? null);
+        if (active !== s.activeVehicleId) void dao.setMeta('activeVehicleId', active);
+        return { vehicles, services, reminders, issues, notes, mileageLogs, activeVehicleId: active };
+      });
+    },
+
     addVehicle: async (input) => {
-      const vehicle: Vehicle = { ...input, id: newId(), createdAt: new Date().toISOString() };
+      // You own what you add. Cars that arrive through sharing get their role
+      // from the membership pull instead.
+      const vehicle: Vehicle = {
+        ...input,
+        id: newId(),
+        createdAt: new Date().toISOString(),
+        role: 'owner',
+      };
       await dao.insertVehicle(vehicle);
       set((s) => ({ vehicles: [...s.vehicles, vehicle], activeVehicleId: vehicle.id }));
       void dao.setMeta('activeVehicleId', vehicle.id);

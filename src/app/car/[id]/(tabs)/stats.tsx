@@ -71,7 +71,8 @@ export default function StatsScreen() {
       : FadeInDown.delay(stagger(index))
           .springify()
           .damping(springs.settle.damping)
-          .stiffness(springs.settle.stiffness);
+          .stiffness(springs.settle.stiffness)
+          .overshootClamping(1);
 
   return (
     <Screen>
