@@ -1,9 +1,18 @@
 import React from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  TextInput,
+  View,
+  useWindowDimensions,
+} from 'react-native';
+import Animated, { FadeIn, FadeInDown, ReduceMotion } from 'react-native-reanimated';
 
+import { IgnitionHero } from '@/components/signature/IgnitionHero';
 import { AppText, Button, Icon, PressableScale, Screen } from '@/components/ui';
 import { useAuthStore } from '@/stores/auth';
-import { fonts, radius, space, useTheme } from '@/theme';
+import { fonts, radius, space, springs, useMotion, useTheme } from '@/theme';
 
 type Mode = 'signIn' | 'signUp';
 
@@ -11,9 +20,14 @@ type Mode = 'signIn' | 'signUp';
  * The only screen a signed out person can reach. Email and password, because
  * Garage must keep running inside Expo Go and the native Google and Apple
  * sign in modules cannot.
+ *
+ * The car standing in the dark with its headlights coming up is the whole
+ * screen's argument: this is a garage, and the light is being switched on.
  */
 export default function SignInScreen() {
   const { colors } = useTheme();
+  const { reduced, stagger, fadeDuration } = useMotion();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const busy = useAuthStore((s) => s.busy);
 
   const [mode, setMode] = React.useState<Mode>('signIn');
@@ -24,6 +38,21 @@ export default function SignInScreen() {
 
   const passwordRef = React.useRef<TextInput>(null);
 
+  // Entrance choreography, the same helper every other screen uses: springs,
+  // overshoot clamped, staggered per element group, once per mount.
+  const enter = (index: number) =>
+    reduced
+      ? FadeIn.duration(fadeDuration).reduceMotion(ReduceMotion.Never)
+      : FadeInDown.springify()
+          .damping(springs.settle.damping)
+          .stiffness(springs.settle.stiffness)
+          .overshootClamping(1)
+          .delay(stagger(index));
+
+  // Short phones give the light less room rather than pushing the password
+  // field under the keyboard.
+  const heroHeight = Math.max(120, Math.min(windowHeight * 0.23, 190));
+
   const submit = async () => {
     setError(null);
     const trimmed = email.trim();
@@ -32,7 +61,8 @@ export default function SignInScreen() {
       return;
     }
     const auth = useAuthStore.getState();
-    const result = mode === 'signIn' ? await auth.signIn(trimmed, password) : await auth.signUp(trimmed, password);
+    const result =
+      mode === 'signIn' ? await auth.signIn(trimmed, password) : await auth.signUp(trimmed, password);
 
     if (!result.ok) {
       setError(result.error ?? 'Something went wrong.');
@@ -48,25 +78,34 @@ export default function SignInScreen() {
     setError(null);
   };
 
+  // The hero is full bleed, so it cancels the Screen gutter rather than
+  // stopping short of the edge the beam runs off.
+  const heroBleed = { marginHorizontal: -space.lg };
+
   if (sentTo) {
     return (
       <Screen>
-        <View style={{ flex: 1, justifyContent: 'center', gap: space.lg }}>
-          <Icon name="check" size={32} color={colors.successText} strokeWidth={1.8} />
-          <AppText variant="displayL">Check your inbox</AppText>
-          <AppText variant="body" color="textSecondary">
-            We sent a confirmation link to {sentTo}. Open it, then come back and sign in.
-          </AppText>
-          <Button
-            label="Back to sign in"
-            variant="ghost"
-            full
-            onPress={() => {
-              setSentTo(null);
-              setMode('signIn');
-              setPassword('');
-            }}
-          />
+        <View style={{ flex: 1, justifyContent: 'center' }}>
+          <Animated.View entering={enter(0)} style={heroBleed}>
+            <IgnitionHero width={windowWidth} height={heroHeight} />
+          </Animated.View>
+          <Animated.View entering={enter(1)} style={{ gap: space.lg, marginTop: space.xl2 }}>
+            <Icon name="check" size={32} color={colors.successText} strokeWidth={1.8} />
+            <AppText variant="displayL">Check your inbox</AppText>
+            <AppText variant="body" color="textSecondary">
+              We sent a confirmation link to {sentTo}. Open it, then come back and sign in.
+            </AppText>
+            <Button
+              label="Back to sign in"
+              variant="ghost"
+              full
+              onPress={() => {
+                setSentTo(null);
+                setMode('signIn');
+                setPassword('');
+              }}
+            />
+          </Animated.View>
         </View>
       </Screen>
     );
@@ -76,27 +115,30 @@ export default function SignInScreen() {
 
   return (
     <Screen>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingBottom: space.xl4 }}
+          contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingBottom: space.xl2 }}
         >
-          <AppText variant="label" color="textMuted">
-            Garage
-          </AppText>
-          <AppText variant="displayXL" style={{ marginTop: space.xs }}>
-            {title}
-          </AppText>
-          <AppText variant="small" color="textSecondary" style={{ marginTop: space.sm }}>
-            Your cars, their service history, and anyone you share them with, on every phone you sign in
-            on.
-          </AppText>
+          <Animated.View entering={enter(0)} style={heroBleed}>
+            <IgnitionHero width={windowWidth} height={heroHeight} busy={busy} />
+          </Animated.View>
 
-          <View style={{ marginTop: space.xl2, gap: space.md }}>
+          <Animated.View entering={enter(1)} style={{ marginTop: space.xl }}>
+            <AppText variant="label" color="textMuted">
+              Garage
+            </AppText>
+            <AppText variant="displayXL" style={{ marginTop: space.xs }}>
+              {title}
+            </AppText>
+            <AppText variant="small" color="textSecondary" style={{ marginTop: space.sm }}>
+              Your cars, their service history, and anyone you share them with, on every phone you sign in
+              on.
+            </AppText>
+          </Animated.View>
+
+          <Animated.View entering={enter(2)} style={{ marginTop: space.xl2, gap: space.md }}>
             <Field
               label="Email"
               value={email}
@@ -120,10 +162,11 @@ export default function SignInScreen() {
               returnKeyType="go"
               onSubmitEditing={() => void submit()}
             />
-          </View>
+          </Animated.View>
 
           {error ? (
-            <View
+            <Animated.View
+              entering={FadeIn.duration(fadeDuration).reduceMotion(ReduceMotion.Never)}
               accessibilityLiveRegion="polite"
               style={{ flexDirection: 'row', gap: space.sm, marginTop: space.md, alignItems: 'flex-start' }}
             >
@@ -131,15 +174,13 @@ export default function SignInScreen() {
               <AppText variant="small" color="dangerText" style={{ flex: 1 }}>
                 {error}
               </AppText>
-            </View>
+            </Animated.View>
           ) : null}
 
-          <View style={{ marginTop: space.xl, gap: space.md }}>
+          <Animated.View entering={enter(3)} style={{ marginTop: space.xl, gap: space.md }}>
             <Button label={title} onPress={() => void submit()} loading={busy} full />
             <PressableScale
-              accessibilityLabel={
-                mode === 'signIn' ? 'Create an account instead' : 'Sign in instead'
-              }
+              accessibilityLabel={mode === 'signIn' ? 'Create an account instead' : 'Sign in instead'}
               onPress={swap}
               style={{ paddingVertical: space.sm, alignItems: 'center' }}
             >
@@ -147,7 +188,7 @@ export default function SignInScreen() {
                 {mode === 'signIn' ? 'New here? Create an account' : 'Already have an account? Sign in'}
               </AppText>
             </PressableScale>
-          </View>
+          </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
     </Screen>
@@ -174,7 +215,7 @@ function Field({ label, value, onChangeText, inputRef, ...input }: FieldProps) {
 
   return (
     <View style={{ gap: space.xs }}>
-      <AppText variant="label" color="textMuted">
+      <AppText variant="label" color={focused ? 'accentText' : 'textMuted'}>
         {label}
       </AppText>
       <TextInput

@@ -109,6 +109,7 @@ All icons are authored in-house in `src/components/ui/Icon.tsx` via react-native
 7. **Radial FAB**: backdrop dim + 4 bloom actions (56pt, mono-caps labels) rendered in the root portal host as a fullscreen layer (Android clips child touches outside parent bounds). Actions bloom along a tachometer arc with tick marks between them; one open-progress shared value drives staggered springs; tap-dim-to-dismiss.
 8. **Pull-to-refresh**, platform split decided up front: Android uses a tinted `RefreshControl` (amber on graphite). iOS derives pull distance from negative `contentOffset.y` via `useAnimatedScrollHandler` feeding a Skia gauge needle above the header. No extra pan gestures near lists, ever.
 9. **Reward moment**: clearing an overdue service pulses a `phosphor` glow from the row + success haptic; the health gauge needle re-springs to the new score.
+10. **Ignition** (sign in): the drawn car stands left of centre on its odometer tape, and its headlight comes up as the screen arrives. ONE Skia canvas behind the SVG car holds the whole light: a dipped beam (linear gradient wedge from the lamp, landing on the ground line, running off the right edge) and a radial lamp glow. Gradient stops are built with `Skia.Color` from theme hexes, never written as `rgba()` strings, because colour strings reach native unparsed. The lamp radius carries a `bloom` overshoot so the filament swells and settles; opacity cannot, it would clip. Signing in lifts the light to 1.3 and back, so waiting reads as the engine being asked for something. Car geometry is 58% of width, left aligned: centred, the beam has nowhere to go. Light theme halves the intensity, because a glowing headlight on a printed spec sheet is a lie.
 
 ## 7. Motion policy
 
@@ -126,6 +127,7 @@ All icons are authored in-house in `src/components/ui/Icon.tsx` via react-native
   - Pull-to-refresh: plain tinted RefreshControl on both platforms
   - Expanding card: plain fade push
   - Reward: static phosphor highlight + success haptic
+  - Ignition: headlight already lit at full, no swell, no surge while signing in
 - Screen entrances are choreographed: staggered 40 to 60ms per element group, springs, once per mount. Entrance and layout springs are **overshoot-clamped**: content arrives and stops, it never bounces past its resting place. Overshoot is reserved for the deliberate moments (odometer, gauge needle, FAB bloom).
 - Loading = skeletons matching final layout. Empty states are designed, with a Skia/SVG drawing and one clear action.
 
