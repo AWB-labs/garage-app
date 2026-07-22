@@ -1,0 +1,144 @@
+<!--
+  Garage, confirm signup.
+
+  Paste into Supabase: Authentication > Emails > Templates > Confirm sign up.
+  Suggested subject: Your Garage confirmation code
+
+  {{ .Token }} is the code. There is deliberately no {{ .ConfirmationURL }}:
+  a link has to come back through a custom scheme, Expo Go answers to exp:// on
+  a LAN address that moves with the machine, and the default Site URL sends
+  people to http://localhost:3000. See SUPABASE.md.
+
+  Email is not the web. Everything here is tables and inline styles, because
+  every client strips something different:
+  - No external fonts. Big Shoulders and Chivo Mono will not load in Gmail, so
+    the stacks below fall back to a system sans and the platform monospace,
+    which keeps the instrument-panel feel without depending on a download.
+  - Outlook on Windows renders through Word: no border-radius and no
+    letter-spacing. Both degrade to square corners and normal tracking, which
+    is fine. Nothing here depends on them to stay readable.
+  - The colour-scheme meta tags stop clients helpfully inverting a design that
+    is already dark.
+  - text-indent on the code compensates for the trailing letter-space, so the
+    digits sit optically centred rather than pushed left.
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="supported-color-schemes" content="dark" />
+    <title>Your Garage confirmation code</title>
+  </head>
+  <body style="margin:0; padding:0; background-color:#0D0C0A;">
+    <!-- Preview text, hidden in the body but shown in the inbox list. -->
+    <div style="display:none; max-height:0; overflow:hidden; opacity:0;">
+      Your code is {{ .Token }}. It works once and expires in an hour.
+    </div>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+           style="background-color:#0D0C0A;">
+      <tr>
+        <td align="center" style="padding:40px 16px;">
+
+          <table role="presentation" width="480" cellpadding="0" cellspacing="0" border="0"
+                 style="width:480px; max-width:480px; background-color:#16140F;
+                        border:1px solid #332D22; border-radius:16px;">
+            <tr>
+              <td style="padding:32px 32px 28px 32px;
+                         font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+
+                <!-- Overline, the app's mono label role. -->
+                <div style="font-family:ui-monospace,'SF Mono','Cascadia Mono',Menlo,Consolas,'Liberation Mono',monospace;
+                            font-size:11px; letter-spacing:2px; text-transform:uppercase;
+                            color:#A29883;">
+                  Garage
+                </div>
+
+                <!-- The one amber rule: light, emitted. -->
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0"
+                       style="margin:14px 0 0 0;">
+                  <tr>
+                    <td width="28" height="2" bgcolor="#FFB000"
+                        style="width:28px; height:2px; line-height:2px; font-size:0;">&nbsp;</td>
+                  </tr>
+                </table>
+
+                <h1 style="margin:20px 0 0 0; font-size:26px; line-height:32px;
+                           font-weight:700; color:#F5F1E8;">
+                  Confirm your email
+                </h1>
+
+                <p style="margin:12px 0 0 0; font-size:15px; line-height:22px; color:#C9C0B0;">
+                  Enter this code in Garage to finish setting up your account.
+                </p>
+
+                <!-- The code, read like an instrument. -->
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                       style="margin:24px 0 0 0;">
+                  <tr>
+                    <td align="center" bgcolor="#14120D"
+                        style="background-color:#14120D; border:1px solid #332D22;
+                               border-radius:12px; padding:22px 12px;">
+                      <div style="font-family:ui-monospace,'SF Mono','Cascadia Mono',Menlo,Consolas,'Liberation Mono',monospace;
+                                  font-size:34px; line-height:40px; font-weight:700;
+                                  letter-spacing:8px; text-indent:8px; color:#FFB000;">
+                        {{ .Token }}
+                      </div>
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- Odometer tape, the app's ground line. Ticks are 3px rather
+                     than hairlines so they survive clients that round widths;
+                     if one collapses the row still reads as a dashed rule. -->
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0"
+                       align="center" style="margin:22px auto 0 auto;">
+                  <tr>
+                    <td width="3" height="9" bgcolor="#7A6E58" style="width:3px; height:9px; font-size:0; line-height:0;">&nbsp;</td>
+                    <td width="9" style="width:9px; font-size:0; line-height:0;">&nbsp;</td>
+                    <td width="3" height="6" bgcolor="#332D22" style="width:3px; height:6px; font-size:0; line-height:0;">&nbsp;</td>
+                    <td width="9" style="width:9px; font-size:0; line-height:0;">&nbsp;</td>
+                    <td width="3" height="6" bgcolor="#332D22" style="width:3px; height:6px; font-size:0; line-height:0;">&nbsp;</td>
+                    <td width="9" style="width:9px; font-size:0; line-height:0;">&nbsp;</td>
+                    <td width="3" height="6" bgcolor="#332D22" style="width:3px; height:6px; font-size:0; line-height:0;">&nbsp;</td>
+                    <td width="9" style="width:9px; font-size:0; line-height:0;">&nbsp;</td>
+                    <td width="3" height="9" bgcolor="#7A6E58" style="width:3px; height:9px; font-size:0; line-height:0;">&nbsp;</td>
+                    <td width="9" style="width:9px; font-size:0; line-height:0;">&nbsp;</td>
+                    <td width="3" height="6" bgcolor="#332D22" style="width:3px; height:6px; font-size:0; line-height:0;">&nbsp;</td>
+                    <td width="9" style="width:9px; font-size:0; line-height:0;">&nbsp;</td>
+                    <td width="3" height="6" bgcolor="#332D22" style="width:3px; height:6px; font-size:0; line-height:0;">&nbsp;</td>
+                    <td width="9" style="width:9px; font-size:0; line-height:0;">&nbsp;</td>
+                    <td width="3" height="6" bgcolor="#332D22" style="width:3px; height:6px; font-size:0; line-height:0;">&nbsp;</td>
+                    <td width="9" style="width:9px; font-size:0; line-height:0;">&nbsp;</td>
+                    <td width="3" height="9" bgcolor="#7A6E58" style="width:3px; height:9px; font-size:0; line-height:0;">&nbsp;</td>
+                  </tr>
+                </table>
+
+                <p style="margin:20px 0 0 0; font-size:13px; line-height:20px; color:#A29883;">
+                  The code works once and expires in an hour. If you did not create a Garage account,
+                  you can ignore this email and nothing will happen.
+                </p>
+
+              </td>
+            </tr>
+          </table>
+
+          <table role="presentation" width="480" cellpadding="0" cellspacing="0" border="0"
+                 style="width:480px; max-width:480px;">
+            <tr>
+              <td align="center"
+                  style="padding:20px 16px 0 16px;
+                         font-family:ui-monospace,'SF Mono','Cascadia Mono',Menlo,Consolas,'Liberation Mono',monospace;
+                         font-size:11px; line-height:18px; letter-spacing:1px; color:#6E6558;">
+                GARAGE &middot; SENT TO {{ .Email }}
+              </td>
+            </tr>
+          </table>
+
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

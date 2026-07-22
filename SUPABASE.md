@@ -61,14 +61,19 @@ the sharing model safe.
 
 ### The confirmation email must send a code, not a link
 
-**Authentication > Email Templates > Confirm signup.** Replace the
-`{{ .ConfirmationURL }}` link with `{{ .Token }}`, for example:
+**Authentication > Emails > Templates > Confirm sign up.** Paste
+[`supabase/templates/confirm-signup.html`](supabase/templates/confirm-signup.html)
+into the message body. Subject: `Your Garage confirmation code`.
 
-```html
-<h2>Confirm your email</h2>
-<p>Enter this code in Garage to finish setting up your account:</p>
-<p style="font-size:28px;letter-spacing:6px"><strong>{{ .Token }}</strong></p>
-```
+The template is kept in the repo so it is reviewed and versioned like anything
+else, but a hosted project has no way to read it from here: the dashboard is
+the only place it takes effect, so paste it and keep the two in step.
+
+It is the app's own dark and amber, built for email rather than for a browser.
+Tables and inline styles throughout, no external fonts or images, and it
+degrades on purpose: Outlook drops the rounded corners and letter spacing, and
+nothing depends on either to stay readable. The colour-scheme meta tags stop
+clients inverting a design that is already dark.
 
 A link cannot work here. It has to return to the app through a custom scheme,
 and Expo Go answers to `exp://` on a LAN address that changes with the machine,
