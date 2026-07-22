@@ -29,6 +29,10 @@ interface AuthState {
   initialize: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<AuthResult>;
   signUp: (email: string, password: string) => Promise<AuthResult>;
+  /** Confirms a new account with the code from the signup email. */
+  verifyCode: (email: string, code: string) => Promise<AuthResult>;
+  /** Sends the signup code again. */
+  resendCode: (email: string) => Promise<AuthResult>;
   signOut: () => Promise<void>;
 }
 
@@ -49,6 +53,12 @@ function readableError(message: string): string {
   }
   if (m.includes('rate limit') || m.includes('too many')) {
     return 'Too many attempts. Wait a minute and try again.';
+  }
+  if (m.includes('token has expired') || m.includes('otp_expired')) {
+    return 'That code has expired. Ask for a new one.';
+  }
+  if (m.includes('invalid') && (m.includes('token') || m.includes('otp'))) {
+    return 'That code is not right. Check it and try again.';
   }
   return message;
 }
@@ -116,6 +126,49 @@ export const useAuthStore = create<AuthState>((set) => ({
       // session. The caller shows "check your inbox" rather than dropping the
       // person into an app that cannot read anything.
       return { ok: true, needsConfirmation: data.session === null };
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  /**
+   * Confirming with a code rather than a link is what lets this work in Expo
+   * Go at all. A confirmation link has to come back to the app through a
+   * custom scheme, and Expo Go answers to exp:// on a LAN address that changes
+   * with the machine, so the link would land nowhere. A code the person types
+   * needs no deep link and behaves the same in Expo Go and a store build.
+   *
+   * On success supabase-js stores the session, onAuthStateChange fires, and
+   * the route gate swaps the app in. There is nothing to navigate by hand.
+   */
+  verifyCode: async (email, code) => {
+    const supabase = getSupabase();
+    if (!supabase) return { ok: false, error: 'Sync is not configured in this build.' };
+    set({ busy: true });
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        email: email.trim().toLowerCase(),
+        token: code.trim(),
+        type: 'signup',
+      });
+      if (error) return { ok: false, error: readableError(error.message) };
+      return { ok: true };
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  resendCode: async (email) => {
+    const supabase = getSupabase();
+    if (!supabase) return { ok: false, error: 'Sync is not configured in this build.' };
+    set({ busy: true });
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: email.trim().toLowerCase(),
+      });
+      if (error) return { ok: false, error: readableError(error.message) };
+      return { ok: true };
     } finally {
       set({ busy: false });
     }

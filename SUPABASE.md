@@ -53,11 +53,41 @@ Authentication > Providers > Email. Email and password is the only method wired
 up, because native Google and Apple sign in cannot run inside Expo Go and the
 project is pinned to Expo Go on SDK 54.
 
-**Confirm email** is on by default. Leave it on for anything real. The sign up
-screen already handles it: Supabase returns a user with no session, and the app
-shows "Check your inbox" rather than dropping somebody into an app that cannot
-read anything. To skip the round trip while testing, turn it off and sign up
-lands straight in the app.
+**Leave Confirm email on.** It is not the usual "nice to have" here. Sharing
+matches invitations on the address in `auth.users`, so an unverified email means
+somebody can sign up as your address and claim cars shared with you.
+`claim_pending_invites()` would hand the car over. Verification is what makes
+the sharing model safe.
+
+### The confirmation email must send a code, not a link
+
+**Authentication > Email Templates > Confirm signup.** Replace the
+`{{ .ConfirmationURL }}` link with `{{ .Token }}`, for example:
+
+```html
+<h2>Confirm your email</h2>
+<p>Enter this code in Garage to finish setting up your account:</p>
+<p style="font-size:28px;letter-spacing:6px"><strong>{{ .Token }}</strong></p>
+```
+
+A link cannot work here. It has to return to the app through a custom scheme,
+and Expo Go answers to `exp://` on a LAN address that changes with the machine,
+so the link lands nowhere. Worse, out of the box it lands on **`http://localhost:3000`**,
+which is Supabase's default Site URL: the account really is confirmed, the
+person just ends up staring at a dead page with no way back.
+
+A typed code needs no deep link and behaves identically in Expo Go and a store
+build. `src/app/sign-in.tsx` asks for it and `verifyCode` in
+`src/stores/auth.ts` calls `verifyOtp({ type: 'signup' })`.
+
+**The code is eight digits on this project, not six.** Verified against the
+live project, whatever the docs imply. It is the Auth OTP length setting; if
+you change it, update `CODE_LENGTH` in `src/app/sign-in.tsx`. Only the
+auto-submit depends on the exact value, so a mismatch costs one extra tap
+rather than making the screen impossible to finish.
+
+Site URL then only matters for password recovery, which this app does not use
+yet. Point it somewhere real before adding one.
 
 ## The data model
 
