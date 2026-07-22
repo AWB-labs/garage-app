@@ -42,6 +42,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "63482a1e-ce41-4dae-8382-a160551685f1"
+      }
+    },
+    "owner": "awb-expo"
   }
 }
