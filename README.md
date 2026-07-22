@@ -19,7 +19,18 @@ Garage works completely without a backend, and that is the default. Add Supabase
 
 ```bash
 cp .env.example .env      # then fill in your project URL and anon key
+npx expo start --clear    # restart: env values are read when the bundler starts
 ```
+
+**`.env` is not in the repository**, so a fresh clone has no backend and shows no
+sign in screen. That is not a bug, it is the local-only default. Two things trip
+people up:
+
+- `EXPO_PUBLIC_` values are inlined when the bundler starts. A Metro that was
+  already running when you wrote `.env` keeps serving the old build, so restart
+  it and reload the app in Expo Go.
+- On startup the app logs which mode it is in, `backend configured` or
+  `no backend`. If you cannot find the sign in screen, read that line first.
 
 Setup, the migrations, and the access model are in [SUPABASE.md](SUPABASE.md).
 

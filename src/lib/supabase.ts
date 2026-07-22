@@ -20,6 +20,23 @@ const isPlaceholder = (value: string): boolean =>
 
 export const isSupabaseConfigured: boolean = !isPlaceholder(url) && !isPlaceholder(anonKey);
 
+// A missing key and a deliberate local-only build behave identically: no sign
+// in screen, no sync, everything on the phone. That is the intended design, and
+// it is also the perfect way to lose an afternoon wondering where the login
+// screen went. So say which one this is, once, at startup.
+if (__DEV__) {
+  if (isSupabaseConfigured) {
+    console.log(`[garage] backend configured, sign in enabled: ${url}`);
+  } else {
+    console.log(
+      '[garage] no backend: local only, no sign in screen, no sync. ' +
+        'Put EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in .env, ' +
+        'then restart with: npx expo start --clear. ' +
+        'These are read when the bundler starts, so a running Metro will not pick them up.'
+    );
+  }
+}
+
 let client: SupabaseClient | null = null;
 
 /** Null when the app was built without Supabase credentials. */
