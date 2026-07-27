@@ -162,7 +162,7 @@ src/
     car/[id]/notes.tsx
     car/[id]/stats.tsx
   theme/                  tokens, ThemeProvider, motion, haptics
-  db/                     sqlite (async API, WAL, user_version migrations), DAOs, seed
+  db/                     sqlite (async API, WAL, user_version migrations), DAOs
   stores/                 zustand: hydrate once at startup, write-through mutations
   sync/                   optional Supabase layer: outbox push, pull, reconcile, sharing
   components/ui/          AppText, Screen, Card, Button, Pill, Icon, Skeleton, EmptyState, SectionHeader, GrainOverlay

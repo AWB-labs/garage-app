@@ -6,7 +6,7 @@ import * as dao from '@/db/dao';
 import { getSupabase, isSupabaseConfigured } from '@/lib/supabase';
 import type { DistanceUnit, ThemePreference, VehicleRole } from '@/lib/types';
 import { DEFAULT_SETTINGS } from '@/lib/types';
-import { useGarageStore } from '@/stores/garage';
+import { dropDemoVehicle, useGarageStore } from '@/stores/garage';
 import { useSettingsStore } from '@/stores/settings';
 import * as map from './mapping';
 import { setSyncListener } from './nudge';
@@ -490,18 +490,14 @@ const ACCOUNT_KEY = 'accountId';
 
 /**
  * Cars that exist on this phone before it has ever synced were made without an
- * account, so signing in adopts them. The demo car is the exception: a seeded
- * BMW is scenery, and letting it become a real car in a real account, on every
- * device, forever, is worse than losing it.
+ * account, so signing in adopts them. The demo car from the old seeded build is
+ * the exception, and hydration has normally dropped it long before this runs.
+ * Repeating the call here costs one query and removes the ordering question:
+ * whichever gets there first, the demo BMW never becomes a real car in a real
+ * account, on every device, forever.
  */
 async function adoptLocalData(): Promise<void> {
-  const seedVehicleId = await dao.getMeta('seedVehicleId');
-  if (seedVehicleId) {
-    await dao.withRemoteApply(() => dao.deleteVehicle(seedVehicleId));
-    await dao.setMeta('seedVehicleId', null);
-    const remaining = await dao.listVehicles();
-    await dao.setMeta('activeVehicleId', remaining[0]?.id ?? null);
-  }
+  await dropDemoVehicle();
 
   for (const v of await dao.listVehicles()) await dao.queueUpsert('vehicles', v.id);
   for (const r of await dao.listServices()) await dao.queueUpsert('service_records', r.id);

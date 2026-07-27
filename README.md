@@ -11,7 +11,7 @@ npm install
 npx expo start
 ```
 
-Scan the QR code with **Expo Go** (Android) or the Camera app (iOS). The app seeds itself with a demo car (a 2021 BMW 330i with 18 events) on first launch so every screen is alive immediately.
+Scan the QR code with **Expo Go** (Android) or the Camera app (iOS). The garage starts empty, and the first car is the one you add.
 
 ## Optional: accounts and sync
 
@@ -39,7 +39,6 @@ Local-first survives the change. SQLite stays the source of truth and every scre
 | | No credentials | With credentials |
 |---|---|---|
 | Sign in | none, straight into the garage | email and password |
-| Demo car | seeded on first launch | never, a real account starts empty |
 | Your cars | this phone only | every phone you sign in on |
 | Sharing | not available | invite by email as editor or viewer |
 | Photos | on this phone | on this phone, still not synced |
@@ -86,7 +85,7 @@ src/
       issue/[issueId]       issue detail + resolve flow
       members.tsx           who this car is shared with
   theme/                    tokens (single source of all color/type/space/motion), haptics, reduce-motion policy
-  db/                       SQLite: WAL, user_version migrations, DAOs, seed, sync outbox
+  db/                       SQLite: WAL, user_version migrations, DAOs, sync outbox
   stores/                   Zustand: hydrate once behind the splash, write-through mutations
   sync/                     the engine (push, pull, reconcile), wire mapping, sharing calls
   lib/                      derived logic: reminder urgency, health score, timeline merge, stats, formatting

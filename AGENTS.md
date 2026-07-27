@@ -42,7 +42,7 @@ Supabase sits *behind* that, never in front of it. Screens never await the netwo
 
 ```
 src/theme/       tokens, motion policy, haptics. NOTHING outside this folder hardcodes a color, size, radius, spring, or duration.
-src/db/          schema (WAL, user_version migrations), DAOs, seed, outbox
+src/db/          schema (WAL, user_version migrations), DAOs, outbox
 src/stores/      garage (all entities + mutations), settings, auth, sheets (open a sheet by kind)
 src/sync/        engine (push/pull/reconcile), mapping (camelCase <-> snake_case), sharing, nudge
 src/lib/         derived logic: reminder urgency, health score, timeline merge, stats, formatting, car imagery, supabase client
@@ -55,7 +55,7 @@ supabase/migrations/       Postgres schema and RLS. See SUPABASE.md.
 
 ## The backend is optional, and that is a feature
 
-With no `EXPO_PUBLIC_SUPABASE_*` in the environment, `isSupabaseConfigured` is false and Garage is exactly the app it always was: local only, no sign in screen, no sync, demo car seeded. Every backend entry point checks this. When you add a feature that touches the network, check it too, and make the offline path the one that works.
+With no `EXPO_PUBLIC_SUPABASE_*` in the environment, `isSupabaseConfigured` is false and Garage is exactly the app it always was: local only, no sign in screen, no sync. Every backend entry point checks this. When you add a feature that touches the network, check it too, and make the offline path the one that works.
 
 ## Sync
 
@@ -82,7 +82,7 @@ One cycle, in `src/sync/engine.ts`: claim invitations, pull membership, reconcil
 
 **Overlap in the FAB bloom.** Actions used to sit on a polar arc, and a long label ("Update mileage") ran under its neighbour's button. They now sit one per horizontal band, which makes overlap impossible at any label length or text size. If you restore the arc, you must actually solve the label collision, not eyeball it at one screen width.
 
-**Reminder anchors are derived, never stamped.** `logService` / `updateService` / `deleteService` all call `reanchorReminders`, which finds the newest matching service and sets the anchor from it. Blind-stamping means back-dating an old service resets a reminder as if it were done today. A rule with **no** matching service keeps its existing anchor: three seeded rules (inspection, battery, the custom "Brake fluid") have no backing record and would be silently wiped otherwise. Custom reminders match on `customLabel`, which is why "Mark done" carries `prefillCustomLabel` into the sheet.
+**Reminder anchors are derived, never stamped.** `logService` / `updateService` / `deleteService` all call `reanchorReminders`, which finds the newest matching service and sets the anchor from it. Blind-stamping means back-dating an old service resets a reminder as if it were done today. A rule with **no** matching service keeps its existing anchor: a rule added for work done before the app was (an inspection, a battery, a custom "Brake fluid") has no backing record and would be silently wiped otherwise. Custom reminders match on `customLabel`, which is why "Mark done" carries `prefillCustomLabel` into the sheet.
 
 **Dates.** Records persist as ISO instants (UTC). Anything that buckets by month or year must format the parsed instant in **local** time (`format(new Date(s.date), 'yyyy-MM')`), never slice the UTC string. Slicing made Stats disagree with the Service log across the midnight boundary and silently drop costs out of the chart window, so the bars stopped summing to the total above them. Do not "fix" this by changing the persistence format: existing rows are instants, and `new Date('2026-01-01')` parses as UTC midnight, which reintroduces the same off-by-one from the other side.
 
@@ -106,7 +106,7 @@ One cycle, in `src/sync/engine.ts`: claim invitations, pull membership, reconcil
 
 **Sharing is the one online-only surface.** Membership is a claim about somebody else's account, so queueing "add this stranger" for later would show access that may never be granted. `src/sync/sharing.ts` talks to Postgres directly and says so when it cannot reach it. Do not route it through the outbox.
 
-**The demo seed does not run when a backend is configured.** A seeded BMW that syncs to every device the person owns reads as a real car. Someone upgrading from the local-only build gets the seed dropped on first sign in, which is what `meta:seedVehicleId` exists for.
+**Nothing is ever seeded.** A garage starts empty and the first car is the one the person adds: a demo BMW in an account syncs to every device they own and reads as a real car. The seed module is gone, and `dropDemoVehicle()` in `src/stores/garage.ts` removes the leftover from phones that ran the old build. It finds that one car through `meta:seedVehicleId`, the marker the seed wrote, so it can never catch a real one, and it deletes under `withRemoteApply` so the cleanup does not push a tombstone. Hydration calls it; `adoptLocalData` calls it again rather than depend on which one lands first. If you ever want demo data back, put it behind an explicit action in Settings, not on the startup path.
 
 ## Car imagery
 
@@ -127,4 +127,4 @@ Copy rules: plain, active voice, exact vocabulary from DESIGN.md section 8 (Serv
 
 - **iOS pull-to-refresh**: the native `RefreshControl` threshold may not exactly match the 88pt sweep the Skia needle is mapped to, so a refresh can start with the needle slightly short of full sweep. Wants calibration on a real phone.
 - **Severity dial**: it takes the sheet's content-panning gesture via a `waitFor` relation. It typechecks and is grounded in gorhom's source, but the feel has not been driven by a finger.
-- Deleting the **only** service backing a reminder leaves that rule on its now-stale anchor (accepted tradeoff: the alternative wipes the seeded rules that have no backing record).
+- Deleting the **only** service backing a reminder leaves that rule on its now-stale anchor (accepted tradeoff: the alternative wipes any rule added for work done before the app was, which has no backing record).

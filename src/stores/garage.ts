@@ -1,9 +1,7 @@
 import { create } from 'zustand';
 
 import * as dao from '@/db/dao';
-import { seedIfEmpty } from '@/db/seed';
 import { newId } from '@/lib/id';
-import { isSupabaseConfigured } from '@/lib/supabase';
 import type {
   Issue,
   IssueSeverity,
@@ -99,6 +97,26 @@ interface GarageState {
 }
 
 /**
+ * Removes the demo car left behind by an install that ran the seeded build,
+ * and only that car: it is found through `meta:seedVehicleId`, the marker the
+ * seed wrote, so a real car can never be caught by it.
+ *
+ * The delete goes through `withRemoteApply` because this is housekeeping, not
+ * an edit. Queueing a tombstone would push a deletion for a row the server has
+ * most likely never seen, and on a phone that had already adopted the demo car
+ * into an account, the cleanup is a plain local removal on every device.
+ */
+export async function dropDemoVehicle(): Promise<void> {
+  const seedVehicleId = await dao.getMeta('seedVehicleId');
+  if (!seedVehicleId) return;
+  await dao.withRemoteApply(() => dao.deleteVehicle(seedVehicleId));
+  await dao.setMeta('seedVehicleId', null);
+  await dao.setMeta('seeded', null);
+  const remaining = await dao.listVehicles();
+  await dao.setMeta('activeVehicleId', remaining[0]?.id ?? null);
+}
+
+/**
  * SQLite is the source of truth. This store hydrates once behind the splash,
  * then every mutation writes to the DAO first and mirrors the change in
  * memory. Components never touch the database directly.
@@ -108,8 +126,8 @@ export const useGarageStore = create<GarageState>((set, get) => {
    * Reminder anchors are derived from the service history, never stamped from
    * whatever was just written: back-dating, editing or deleting a record has to
    * move the anchor onto whatever service actually satisfies the rule now. A
-   * rule with no matching service keeps the anchor it was created with, since
-   * seeded and hand-entered rules carry anchors that no record backs.
+   * rule with no matching service keeps the anchor it was created with: a rule
+   * can be added for work done before the app was, with no record behind it.
    */
   const reanchorReminders = async (vehicleId: string): Promise<void> => {
     const { services, reminders } = get();
@@ -151,10 +169,10 @@ export const useGarageStore = create<GarageState>((set, get) => {
     mileageLogs: [],
 
     hydrate: async () => {
-      // The demo car is scenery for the local-only build. Once there is a
-      // backend an account starts empty, because a seeded BMW would sync to
-      // every device the person owns and read as a real car.
-      if (!isSupabaseConfigured) await seedIfEmpty();
+      // Nothing is ever seeded: a garage starts empty and the first car is the
+      // one the person adds. Phones that ran the old build still hold the demo
+      // BMW, so it is dropped here, once, before anything reads the tables.
+      await dropDemoVehicle();
       const [vehicles, services, reminders, issues, notes, mileageLogs, storedActive] =
         await Promise.all([
           dao.listVehicles(),
