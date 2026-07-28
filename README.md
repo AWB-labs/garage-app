@@ -34,6 +34,25 @@ people up:
 
 Setup, the migrations, and the access model are in [SUPABASE.md](SUPABASE.md).
 
+### Builds do not read your .env
+
+`.env` is gitignored, and EAS Build uploads your project the same way git sees
+it, so the file never reaches the builder. A build made that way is not broken:
+it is the local-only app, with no sign in screen and no sync, and it installs
+looking perfectly fine. The credentials therefore live as EAS environment
+variables instead, and each profile in `eas.json` names the environment it
+pulls from.
+
+```bash
+eas env:list production                          # what a production build will get
+eas env:create --scope project --name EXPO_PUBLIC_SUPABASE_URL --value ... \
+  --visibility plaintext --environment production
+```
+
+`app.config.js` refuses to build on EAS when either value is missing, so that
+mistake fails at the start of the build rather than in the store. Building the
+local-only app deliberately is still possible with `GARAGE_ALLOW_NO_BACKEND=1`.
+
 Local-first survives the change. SQLite stays the source of truth and every screen still reads from it, so the app works with no signal and reconciles later. What changes:
 
 | | No credentials | With credentials |
