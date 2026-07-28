@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy · Garagey</title>
+<meta name="description" content="How Garagey handles your data. Local first, no analytics, no tracking.">
+<style>
+  :root {
+    --bg: #0D0C0A;
+    --surface: #16150F;
+    --stroke: #2A2820;
+    --text: #F2EFE6;
+    --muted: #9A968A;
+    --accent: #FFD24D;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 48px 24px 96px; }
+  a { color: var(--accent); }
+  .eyebrow {
+    font-size: 12px; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 8px;
+  }
+  h1 { font-size: 40px; line-height: 1.1; margin: 0 0 8px; letter-spacing: -.02em; }
+  h2 { font-size: 22px; margin: 44px 0 12px; letter-spacing: -.01em; }
+  h3 { font-size: 16px; margin: 24px 0 6px; color: var(--accent); }
+  .updated { color: var(--muted); font-size: 14px; margin: 0 0 40px; }
+  .lede { font-size: 18px; color: var(--text); }
+  ul { padding-left: 20px; }
+  li { margin: 6px 0; }
+  .card {
+    background: var(--surface); border: 1px solid var(--stroke);
+    border-radius: 14px; padding: 20px 22px; margin: 20px 0;
+  }
+  .card p:last-child, .card ul:last-child { margin-bottom: 0; }
+  .muted { color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 15px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--stroke); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; }
+  .table-scroll { overflow-x: auto; }
+  footer { margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--stroke); color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <p class="eyebrow">Garagey</p>
+  <h1>Privacy Policy</h1>
+  <p class="updated">Last updated 28 July 2026</p>
+
+  <p class="lede">
+    Garagey keeps your car records on your phone. There is no analytics, no advertising,
+    no tracking, and no third party trackers of any kind. This page explains the few
+    cases where data does leave your device, all of which you choose to switch on.
+  </p>
+
+  <h2>What Garagey stores, and where</h2>
+  <p>
+    Everything you enter goes into a database on your own device: your cars, service
+    history, reminders, issues, notes, mileage, and your app settings. The app is fully
+    usable this way, with no account and no internet connection.
+  </p>
+
+  <h2>If you create an account</h2>
+  <p>
+    An account is optional. It exists so your garage can appear on more than one phone
+    and so you can share a car with somebody else. If you create one, your records are
+    copied to our hosted database so they can sync.
+  </p>
+
+  <div class="table-scroll">
+  <table>
+    <tr><th>Data</th><th>Where it goes</th></tr>
+    <tr>
+      <td>Email address and password</td>
+      <td>Stored by our authentication provider, Supabase. The password is stored hashed, and we never see it.</td>
+    </tr>
+    <tr>
+      <td>Cars: make, model, year, nickname, plate, VIN, mileage</td>
+      <td>Synced to your account so your other devices can read them.</td>
+    </tr>
+    <tr>
+      <td>Service records, reminders, issues, notes, mileage logs</td>
+      <td>Synced to your account.</td>
+    </tr>
+    <tr>
+      <td>Settings: theme, units, currency</td>
+      <td>Synced to your account.</td>
+    </tr>
+    <tr>
+      <td><strong>Photos</strong></td>
+      <td><strong>Never leave your device.</strong> Receipt and issue photos stay in the app's local storage. There is no place for them in our database and they are never uploaded.</td>
+    </tr>
+  </table>
+  </div>
+
+  <div class="card">
+    <p class="muted">
+      Access to your records is enforced at the database level. Your rows are readable
+      only by your account and by anyone you have explicitly shared a specific car with.
+    </p>
+  </div>
+
+  <h2>Sharing a car</h2>
+  <p>
+    You can invite somebody to a car by entering their email address, as an editor who
+    can add records or a viewer who can only read. That email address is stored so the
+    invitation can be matched when they sign in. The person you invite can see that
+    car's records, and nothing else in your garage. You can remove their access at any
+    time, and doing so removes that car from their device.
+  </p>
+
+  <h2>Car imagery, off by default</h2>
+  <p>
+    Garagey can show a studio render of your car instead of a drawn outline. This is a
+    setting you choose, under Settings, Car imagery.
+  </p>
+  <ul>
+    <li><strong>Drawn</strong> keeps the hand drawn silhouette and makes no network request at all.</li>
+    <li><strong>Demo</strong> and <strong>your own key</strong> request an image from a third party image service, imagin.studio.</li>
+  </ul>
+  <p>
+    That request contains only the car's <strong>make, model, and year</strong>. It does not
+    contain your plate, your VIN, your mileage, your email, your name, or any identifier
+    for you or your device. imagin.studio handles those requests under its own privacy
+    policy.
+  </p>
+
+  <h2>Who else is involved</h2>
+  <ul>
+    <li><strong>Supabase</strong>, our database and authentication provider, and only if you create an account.</li>
+    <li><strong>imagin.studio</strong>, for car renders, and only if you turn car imagery on.</li>
+    <li><strong>Apple</strong>, which handles app distribution and any crash reports you have chosen to share with developers in your iOS settings.</li>
+  </ul>
+  <p>
+    That is the complete list. Garagey contains no advertising SDK, no analytics SDK, and
+    no social network SDK. We do not sell or share your data, and there is nothing in the
+    app that profiles you or tracks you across other apps or websites.
+  </p>
+
+  <h2>Keeping and deleting your data</h2>
+  <ul>
+    <li>Deleting a car in the app removes it and its records from your devices and from your account.</li>
+    <li>Signing out clears the garage from that phone. Records already synced stay in your account.</li>
+    <li>Deleting your account removes your account and the records stored with it.</li>
+    <li>Local data is removed when you delete the app from your device.</li>
+  </ul>
+  <p>
+    To request deletion of your account, or a copy of what is stored for it, contact us
+    using the link below and we will action it.
+  </p>
+
+  <h2>Children</h2>
+  <p>
+    Garagey is not directed at children and we do not knowingly collect information from
+    children under 13.
+  </p>
+
+  <h2>Changes</h2>
+  <p>
+    If this policy changes, the date at the top of this page changes with it, and the
+    previous versions remain visible in the public repository this page is published from.
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    Questions, deletion requests, or anything else:
+    <a href="https://github.com/AWB-labs/garage-app/issues">open an issue on GitHub</a>.
+  </p>
+
+  <footer>
+    <a href="./">Garagey</a> · Privacy Policy · Last updated 28 July 2026
+  </footer>
+
+</div>
+</body>
+</html>
