@@ -143,7 +143,9 @@ export default function MembersScreen() {
             .then(async () => {
               // The next sync would notice too, but waiting for it would leave
               // the person staring at a car they no longer belong to.
-              await useGarageStore.getState().deleteVehicle(id);
+              // leaveVehicle, not deleteVehicle: this car is somebody else's
+              // and must not be tombstoned on their behalf.
+              await useGarageStore.getState().leaveVehicle(id);
               router.replace('/garage');
             })
             .catch((e: unknown) =>

@@ -72,7 +72,10 @@ interface GarageState {
 
   addVehicle: (input: VehicleInput) => Promise<Vehicle>;
   updateVehicle: (vehicle: Vehicle) => Promise<void>;
+  /** Owner only: tombstones the car so every device drops it. */
   deleteVehicle: (id: string) => Promise<void>;
+  /** Non-owner: takes the car off this phone without touching the original. */
+  leaveVehicle: (id: string) => Promise<void>;
   setActiveVehicle: (id: string) => void;
 
   logService: (input: ServiceInput) => Promise<ServiceRecord>;
@@ -129,6 +132,29 @@ export const useGarageStore = create<GarageState>((set, get) => {
    * rule with no matching service keeps the anchor it was created with: a rule
    * can be added for work done before the app was, with no record behind it.
    */
+  /**
+   * Takes a car and everything hanging off it out of memory. SQLite has
+   * already cascaded the children by the time this runs, so this only mirrors
+   * that; the difference between deleting and leaving is what was queued for
+   * the server, not what is dropped here.
+   */
+  const forget = (id: string): void => {
+    set((s) => {
+      const vehicles = s.vehicles.filter((v) => v.id !== id);
+      const activeVehicleId = s.activeVehicleId === id ? (vehicles[0]?.id ?? null) : s.activeVehicleId;
+      void dao.setMeta('activeVehicleId', activeVehicleId);
+      return {
+        vehicles,
+        activeVehicleId,
+        services: s.services.filter((r) => r.vehicleId !== id),
+        reminders: s.reminders.filter((r) => r.vehicleId !== id),
+        issues: s.issues.filter((r) => r.vehicleId !== id),
+        notes: s.notes.filter((r) => r.vehicleId !== id),
+        mileageLogs: s.mileageLogs.filter((r) => r.vehicleId !== id),
+      };
+    });
+  };
+
   const reanchorReminders = async (vehicleId: string): Promise<void> => {
     const { services, reminders } = get();
     const history = services.filter((s) => s.vehicleId === vehicleId);
@@ -233,20 +259,27 @@ export const useGarageStore = create<GarageState>((set, get) => {
 
     deleteVehicle: async (id) => {
       await dao.deleteVehicle(id);
-      set((s) => {
-        const vehicles = s.vehicles.filter((v) => v.id !== id);
-        const activeVehicleId = s.activeVehicleId === id ? (vehicles[0]?.id ?? null) : s.activeVehicleId;
-        void dao.setMeta('activeVehicleId', activeVehicleId);
-        return {
-          vehicles,
-          activeVehicleId,
-          services: s.services.filter((r) => r.vehicleId !== id),
-          reminders: s.reminders.filter((r) => r.vehicleId !== id),
-          issues: s.issues.filter((r) => r.vehicleId !== id),
-          notes: s.notes.filter((r) => r.vehicleId !== id),
-          mileageLogs: s.mileageLogs.filter((r) => r.vehicleId !== id),
-        };
-      });
+      forget(id);
+    },
+
+    /**
+     * Leaving is not deleting. The car belongs to somebody else, so the only
+     * correct change is local: drop it from this phone and leave the original
+     * alone.
+     *
+     * withRemoteApply is what makes that true. Without it the same DAO call
+     * queues a tombstone, and the outbox would then try to push "this car is
+     * deleted" for a car this account does not own and, having just left, can
+     * no longer even see. The write cannot land, so it sits in the outbox
+     * retrying against a row that is now invisible to it.
+     *
+     * Membership itself is removed by the caller through sharing.ts, which is
+     * online only on purpose: revoking your own access is a claim the server
+     * has to accept, not something to queue and hope for.
+     */
+    leaveVehicle: async (id) => {
+      await dao.withRemoteApply(() => dao.deleteVehicle(id));
+      forget(id);
     },
 
     setActiveVehicle: (id) => {

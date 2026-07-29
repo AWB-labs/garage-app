@@ -1,7 +1,8 @@
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
+import { router } from 'expo-router';
 import React from 'react';
-import { View } from 'react-native';
+import { Alert, View } from 'react-native';
 
 import { buildCarImageUrl, downloadCarImage } from '@/lib/carImage';
 import { persistPhoto } from '@/lib/photos';
@@ -27,6 +28,7 @@ export function VehicleSheet({ vehicle, onClose }: VehicleSheetProps) {
   const carImageKey = useSettingsStore((s) => s.carImageKey);
   const addVehicle = useGarageStore((s) => s.addVehicle);
   const updateVehicle = useGarageStore((s) => s.updateVehicle);
+  const deleteVehicle = useGarageStore((s) => s.deleteVehicle);
 
   const [make, setMake] = React.useState(vehicle?.make ?? '');
   const [model, setModel] = React.useState(vehicle?.model ?? '');
@@ -106,6 +108,39 @@ export function VehicleSheet({ vehicle, onClose }: VehicleSheetProps) {
     sheetRef.current?.dismiss();
   };
 
+  // Only the owner can delete. An editor or viewer gets "Leave this car" on the
+  // sharing screen instead, which takes the car off their phone and leaves the
+  // original alone. The server enforces the same split, so this is the UI
+  // agreeing with the policy rather than being the thing that protects it.
+  const isOwner = vehicle?.role === 'owner';
+
+  const confirmDelete = () => {
+    if (!vehicle) return;
+    const name = vehicle.nickname ?? `${vehicle.make} ${vehicle.model}`;
+    Alert.alert(
+      'Delete this car?',
+      `${name} and everything logged against it go, on every device. Anyone you shared it with loses it too.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              await deleteVehicle(vehicle.id);
+              haptic.save();
+              sheetRef.current?.dismiss();
+              // The car route resolves through the active car, so a screen
+              // still pointing at this one would render empty rather than
+              // error. Leaving for the garage is the only safe landing.
+              router.replace('/garage');
+            })();
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <GarageSheet ref={sheetRef} title={vehicle ? 'Edit car' : 'Add car'} onClose={onClose} snapPoints={['88%']}>
       <PressableScale
@@ -174,6 +209,11 @@ export function VehicleSheet({ vehicle, onClose }: VehicleSheetProps) {
         <Field label="VIN" value={vin} onChangeText={setVin} placeholder="Optional" autoCapitalize="characters" />
       </FieldRow>
       <Button label={vehicle ? 'Save changes' : 'Add car'} onPress={save} full />
+      {vehicle && isOwner ? (
+        <View style={{ marginTop: space.md }}>
+          <Button label="Delete car" variant="danger" icon="trash" onPress={confirmDelete} full />
+        </View>
+      ) : null}
     </GarageSheet>
   );
 }
