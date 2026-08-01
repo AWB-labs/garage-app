@@ -30,11 +30,12 @@ They must run in filename order. Each one depends on the one before it:
 | `20260721120200_sharing_functions.sql` | `invite_to_vehicle`, `claim_pending_invites`, and the triggers that unlink an issue from a deleted service |
 | `20260721120300_owner_sees_own_vehicle.sql` | Fixes car creation failing under `INSERT ... RETURNING` |
 | `20260721120400_unlink_trigger_privileges.sql` | Fixes accounts that own a car being impossible to delete |
+| `20260801120000_delete_own_account.sql` | `delete_own_account()`, so a signed in user can delete their own account without a service role key |
 
-The last two exist because the first three were wrong in ways only a live
-database could show. Both are written up under Traps below. Do not fold them
-back into the earlier files: a migration set that has run somewhere is history,
-not a draft.
+The last two of the original five exist because the first three were wrong in
+ways only a live database could show. Both are written up under Traps below.
+Do not fold them back into the earlier files: a migration set that has run
+somewhere is history, not a draft.
 
 ## Pointing the app at it
 
@@ -154,6 +155,51 @@ The general rule: **any trigger that touches a second table must be SECURITY
 DEFINER if it can be reached through a cascade**, because you do not control
 which role will be holding the knife.
 
+## Deleting your own account
+
+There is no service role key on the phone, so the client cannot call the Auth
+admin API the way `scripts/verify-backend.mjs` deletes its throwaway accounts.
+`public.delete_own_account()` (`20260801120000_delete_own_account.sql`) is the
+self-service path: SECURITY DEFINER, and it does nothing but
+`delete from auth.users where id = auth.uid()`.
+
+The cascade from there already does the right thing per role, with no extra
+logic needed in the function:
+
+- **Owned.** `vehicles.owner_id references profiles(id) on delete cascade`, so
+  every car this account owns is hard deleted, and with it every
+  `service_records` / `reminder_rules` / `issues` / `notes` / `mileage_logs` /
+  `vehicle_members` row that pointed at one of those cars. The two unlink
+  triggers this drags through are already SECURITY DEFINER, from the account
+  deletion fix above, so the cascade does not die partway through the way it
+  once did for the admin API path.
+- **Shared with, not owned.** `vehicle_members.user_id references profiles(id)
+  on delete cascade`, so only this account's own membership row goes. The car
+  and everything logged against it survive untouched, because no table in this
+  schema ties a service record, issue, note, or mileage log to the person who
+  entered it, only to the vehicle it belongs to.
+
+The one thing this function does not do is tombstone owned cars before the
+delete. It could, in the same call, but an UPDATE that commits in the same
+transaction as the DELETE that follows it is invisible to every other session:
+nobody else's next pull can land in a gap that never opens. `src/sync/engine.ts`'s
+`deleteAccountAndClearLocal` instead expects the caller to have already
+tombstoned and pushed its owned cars the ordinary way
+(`useGarageStore.deleteVehicle`, then a sync push) before calling this RPC,
+which at least gives other members' next pull a chance to see the delete
+before the cascade here removes the row for good. It is the same best effort
+sign out already makes for the outbox before wiping a phone, not a guarantee.
+
+**Not verified against the live database yet.** Apply this migration and run
+`verify:backend`, which now has a check for both shapes: a non-owner deleting
+their own account (the car and what they logged on it survive), and an owner
+deleting theirs (the car and everything on it goes). In particular, whether the
+role that owns this function actually has DELETE rights on `auth.users` has
+never been exercised outside reading how the equivalent community recipe is
+documented; the failure mode if it does not is a permission error surfaced to
+the person tapping the button, not silent data loss, but it needs a real run
+to know either way.
+
 ## Things worth knowing before you change any of it
 
 **Primary keys are `text`, not `uuid`.** The client mints ids offline in
@@ -256,5 +302,7 @@ the sheets and gestures around them have never run on a device. In particular:
 - The local SQLite migration that adds `vehicles.role` to an existing install
   has not been run against a database that already had rows.
 - Airplane mode, and the outbox draining afterwards, is untested.
+- `delete_own_account()` has not been run against the live database. See
+  "Deleting your own account" above before relying on it.
 
 That is the next thing to do, and it needs a phone.

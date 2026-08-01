@@ -54,6 +54,10 @@ function check(name, ok, detail = '') {
 
 const adminHeaders = { apikey: SVC, Authorization: `Bearer ${SVC}`, 'Content-Type': 'application/json' };
 
+// Bypasses RLS, for checking what actually happened to a row after the
+// account that could see it is gone and there is no session left to ask.
+const svc = createClient(SBURL, SVC, { auth: { persistSession: false } });
+
 async function createUser(email) {
   const res = await fetch(`${SBURL}/auth/v1/admin/users`, {
     method: 'POST',
@@ -393,6 +397,110 @@ try {
   const anon = createClient(SBURL, ANON, { auth: { persistSession: false } });
   const anonRead = await anon.from('vehicles').select('id');
   check('a signed out caller reads nothing', !!anonRead.error || anonRead.data?.length === 0);
+
+  console.log('\n== Self-service account deletion ==');
+  // A fresh pair, kept apart from alice/bob/carol/dave above: erin owns a car,
+  // shares it with frank, and each of them deletes their own account through
+  // delete_own_account() rather than the admin API, which is the one path the
+  // app itself can ever take.
+  const erinId = await createUser(mail('erin'));
+  const frankId = await createUser(mail('frank'));
+  accounts.push(erinId, frankId);
+  const E = await signedInClient(mail('erin'));
+  const F = await signedInClient(mail('frank'));
+
+  const erinCarId = id('erincar');
+  const erinCar = await E.from('vehicles').upsert(
+    {
+      id: erinCarId,
+      owner_id: erinId,
+      make: 'Honda',
+      model: 'Civic',
+      year: 2018,
+      current_mileage: 40000,
+      created_at: new Date().toISOString(),
+      deleted_at: null,
+    },
+    { onConflict: 'id' }
+  );
+  check('erin creates a car', !erinCar.error, erinCar.error?.message);
+
+  const shareWithFrank = await E.rpc('invite_to_vehicle', {
+    p_vehicle_id: erinCarId,
+    p_email: mail('frank'),
+    p_role: 'editor',
+  });
+  check(
+    'erin shares it with frank',
+    !shareWithFrank.error && shareWithFrank.data?.status === 'added',
+    shareWithFrank.error?.message ?? JSON.stringify(shareWithFrank.data)
+  );
+
+  const franksServiceId = id('franksvc');
+  const franksService = await F.from('service_records').upsert(
+    {
+      id: franksServiceId,
+      vehicle_id: erinCarId,
+      type: 'oil',
+      date: new Date().toISOString(),
+      mileage: 40500,
+      deleted_at: null,
+    },
+    { onConflict: 'id' }
+  );
+  check('frank, a non-owner, logs a service on it', !franksService.error, franksService.error?.message);
+
+  const frankDeletesHimself = await F.rpc('delete_own_account');
+  check(
+    'a non-owner can delete their own account',
+    !frankDeletesHimself.error,
+    frankDeletesHimself.error?.message
+  );
+  // Deleted by his own hand, not by the admin API cleanup in the finally
+  // block below: leaving him in `accounts` would make that cleanup try to
+  // delete him a second time and read as a failure of its own check.
+  accounts.splice(accounts.indexOf(frankId), 1);
+
+  const carAfterFrank = await E.from('vehicles').select('id, deleted_at').eq('id', erinCarId);
+  check(
+    'the car survives a non-owner deleting their account',
+    carAfterFrank.data?.length === 1 && carAfterFrank.data[0].deleted_at === null,
+    JSON.stringify(carAfterFrank.data)
+  );
+  const serviceAfterFrank = await E.from('service_records').select('id').eq('id', franksServiceId);
+  check(
+    'what frank logged survives frank deleting his account',
+    serviceAfterFrank.data?.length === 1,
+    JSON.stringify(serviceAfterFrank.data)
+  );
+  const membershipAfterFrank = await E.from('vehicle_members')
+    .select('user_id')
+    .eq('vehicle_id', erinCarId)
+    .eq('user_id', frankId);
+  check(
+    "frank's membership does not survive it",
+    membershipAfterFrank.data?.length === 0,
+    JSON.stringify(membershipAfterFrank.data)
+  );
+
+  const erinDeletesHerself = await E.rpc('delete_own_account');
+  check('an owner can delete their own account', !erinDeletesHerself.error, erinDeletesHerself.error?.message);
+  accounts.splice(accounts.indexOf(erinId), 1);
+
+  // Erin's own session has nothing left to read with, so these two go
+  // through the service role, the only way to tell "gone" from "invisible".
+  const carAfterErin = await svc.from('vehicles').select('id').eq('id', erinCarId);
+  check(
+    'the owner deleting their account removes the car entirely',
+    carAfterErin.data?.length === 0,
+    JSON.stringify(carAfterErin.data)
+  );
+  const serviceAfterErin = await svc.from('service_records').select('id').eq('id', franksServiceId);
+  check(
+    "the car's service records, including what frank logged, go with it",
+    serviceAfterErin.data?.length === 0,
+    JSON.stringify(serviceAfterErin.data)
+  );
 } catch (error) {
   fail++;
   failures.push(`threw: ${error.message}`);

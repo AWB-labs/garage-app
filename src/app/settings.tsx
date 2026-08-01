@@ -7,7 +7,8 @@ import { AppText, Button, Icon, PressableScale, Screen, SectionHeader, Segmented
 import { DEMO_CAR_IMAGE_KEY } from '@/lib/carImage';
 import { exportGarage } from '@/lib/export';
 import { isSupabaseConfigured } from '@/lib/supabase';
-import { signOutAndClearLocal, syncNow, useSyncStore } from '@/sync/engine';
+import { deleteAccountAndClearLocal, signOutAndClearLocal, syncNow, useSyncStore } from '@/sync/engine';
+import { removeMember } from '@/sync/sharing';
 import { useAuthStore } from '@/stores/auth';
 import { useGarageStore } from '@/stores/garage';
 import { useSettingsStore } from '@/stores/settings';
@@ -168,8 +169,11 @@ export default function SettingsScreen() {
 function AccountSection() {
   const { colors } = useTheme();
   const email = useAuthStore((s) => s.email);
+  const userId = useAuthStore((s) => s.userId);
+  const vehicles = useGarageStore((s) => s.vehicles);
   const { phase, pending, lastSyncedAt, error } = useSyncStore();
   const [leaving, setLeaving] = React.useState(false);
+  const [deletingAccount, setDeletingAccount] = React.useState(false);
 
   const status =
     phase === 'syncing'
@@ -206,6 +210,79 @@ function AccountSection() {
     ]);
   };
 
+  const confirmDeleteAccount = () => {
+    if (!userId) return;
+    const owned = vehicles.filter((v) => v.role === 'owner');
+    const shared = vehicles.filter((v) => v.role !== 'owner');
+
+    const ownedLine =
+      owned.length === 0
+        ? ''
+        : owned.length === 1
+          ? ' The car you own, and everything logged against it, goes too, on every device.'
+          : ` The ${owned.length} cars you own, and everything logged against them, go too, on every device.`;
+    const sharedLine =
+      shared.length === 0
+        ? ''
+        : shared.length === 1
+          ? ' You lose access to the shared car. What you logged there stays.'
+          : ` You lose access to all ${shared.length} shared cars. What you logged there stays.`;
+    const pendingLine =
+      pending === 0
+        ? ''
+        : pending === 1
+          ? ' 1 change has not reached the server yet and is lost if it cannot upload first.'
+          : ` ${pending} changes have not reached the server yet and are lost if it cannot upload first.`;
+
+    Alert.alert(
+      'Delete your account?',
+      `Your account goes, and you cannot undo it.${ownedLine}${sharedLine}${pendingLine}`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            setDeletingAccount(true);
+            void (async () => {
+              try {
+                // Best effort: whatever else is still queued gets a chance to
+                // land before the owned cars below queue their own tombstone.
+                await syncNow().catch(() => {});
+
+                for (const v of useGarageStore.getState().vehicles) {
+                  if (v.role === 'owner') {
+                    await useGarageStore.getState().deleteVehicle(v.id);
+                  } else {
+                    // Online only, same as leaving from the sharing screen:
+                    // the server has to accept the membership is gone rather
+                    // than have it queued and hoped for.
+                    await removeMember(v.id, userId);
+                    await useGarageStore.getState().leaveVehicle(v.id);
+                  }
+                }
+
+                // Pushes the tombstones just queued for anything owned, so
+                // other members have a chance to see the delete before the
+                // account RPC below cascades the row away for good.
+                await syncNow().catch(() => {});
+
+                await deleteAccountAndClearLocal();
+              } catch (e) {
+                Alert.alert(
+                  'Could not delete your account',
+                  e instanceof Error ? e.message : 'Check your connection and try again.'
+                );
+              } finally {
+                setDeletingAccount(false);
+              }
+            })();
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <>
       <SectionHeader overline="Account" title="Sync" />
@@ -234,7 +311,23 @@ function AccountSection() {
           loading={phase === 'syncing'}
           full
         />
-        <Button label="Sign out" variant="danger" onPress={confirmSignOut} loading={leaving} full />
+        <Button
+          label="Sign out"
+          variant="danger"
+          onPress={confirmSignOut}
+          loading={leaving}
+          disabled={deletingAccount}
+          full
+        />
+        <Button
+          label="Delete account"
+          icon="trash"
+          variant="danger"
+          onPress={confirmDeleteAccount}
+          loading={deletingAccount}
+          disabled={leaving}
+          full
+        />
       </View>
     </>
   );

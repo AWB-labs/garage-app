@@ -575,6 +575,31 @@ export async function signOutAndClearLocal(): Promise<void> {
   await useGarageStore.getState().reloadFromDb();
 }
 
+/**
+ * Deletes the account itself, not just this phone's copy of it. The RPC
+ * cascades server side: every car this account owns, and everything logged
+ * against it, goes with it; every car it only had access to just no longer
+ * lists it as a member, untouched otherwise, because nothing in the schema
+ * ties a service record, issue, note, or mileage log to who entered it, only
+ * to the car. See "Deleting your own account" in SUPABASE.md.
+ *
+ * Callers are expected to have already tombstoned and pushed whatever this
+ * account owns (the Delete account flow in src/app/settings.tsx), so other
+ * members get a chance to see the delete before the RPC cascades it away.
+ * signOut afterward talks to an account that, by design, no longer exists;
+ * supabase-js still clears the local session in that case, the same as it
+ * would for a session invalidated any other way, which is what lets the route
+ * gate drop this phone back to signed out.
+ */
+export async function deleteAccountAndClearLocal(): Promise<void> {
+  const { error } = await client().rpc('delete_own_account');
+  if (error) throw classify(error);
+  await getSupabase()?.auth.signOut().catch(() => {});
+  stopSync();
+  await dao.wipeGarage();
+  await useGarageStore.getState().reloadFromDb();
+}
+
 /** How many local changes have not reached the server yet. */
 export async function pendingChangeCount(): Promise<number> {
   return dao.countOutbox();
